@@ -14,7 +14,7 @@ One Curve is an independent project. The repository is still named eq-sum. It is
 
 ## Chain
 
-![Two pasted Nova states and their yellow sum](docs/chain.png)
+![Three pasted Nova states and their yellow sum](docs/chain.png)
 
 Paste two or more Copy State strings. Each curve stays on the graph, and the yellow line is those curves added in dB.
 
