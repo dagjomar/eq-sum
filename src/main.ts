@@ -84,7 +84,7 @@ app.innerHTML = `
   <div class="app">
     <header class="top">
       <div class="brand">
-        <h1>eq-sum</h1>
+        <h1>One Curve</h1>
         <span class="badge">TDR Nova</span>
       </div>
       <nav class="tabs" role="tablist">

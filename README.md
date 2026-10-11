@@ -1,4 +1,4 @@
-# eq-sum
+# One Curve
 
 ## The problem to solve
 
@@ -10,7 +10,7 @@ This tool helps you combine the EQs to a single curve and lets you try to estima
 
 It is tailored for [TDR Nova](https://www.tokyodawn.net/tdr-nova/) and Nova GE Copy State / Paste State right now. It runs in the browser. Nothing is uploaded.
 
-eq-sum is an independent project. It is not affiliated with or endorsed by Tokyo Dawn Records, and there is no collaboration. The author would love the TDR Nova team to reach out. This is a feature they would love to see built into TDR Nova, or offered as a separate downloadable plugin.
+One Curve is an independent project. The repository is still named eq-sum. It is not affiliated with or endorsed by Tokyo Dawn Records, and there is no collaboration. The author would love the TDR Nova team to reach out. This is a feature they would love to see built into TDR Nova, or offered as a separate downloadable plugin.
 
 ## Chain
 
@@ -35,7 +35,7 @@ Hold the eye at the top-right of the Match graph to hide the nodes and leave onl
 1. In TDR Nova, use Copy State.
 2. Paste that text here and add it. Repeat for each Nova in the stack. The Example button loads two sample states if you want to try it without a DAW.
 3. Check shape, gain, frequency, high-pass, and low-pass against the plugin. Mute, solo, rename, and reorder the chain. Switch the scale between ±12 dB and ±24 dB to match Nova’s magnitude setting.
-4. Open Match and refresh the reference if the chain has changed. Add up to three Novas and shape them against the dashed line.
+4. Open Match. The dashed line follows the chain sum. Add up to three Novas and shape them against that line.
 5. Copy state, then Paste State back into Nova.
 
 ## Limits
@@ -54,4 +54,12 @@ npm test
 npm run dev
 ```
 
-MIT license. Copyright 2026 dagjomar.
+## License
+
+Copyright 2026 dagjomar.
+
+Current versions are licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/). You can use, fork, and change this project for any noncommercial purpose. Commercial use is reserved for dagjomar.
+
+A contribution is licensed on the same terms, and it also grants dagjomar a perpetual right to use that contribution commercially, including in a paid plugin.
+
+Versions already published under the MIT License, through commit `50784fe`, stay available under MIT. This change does not rewrite that history.
