@@ -14,19 +14,19 @@ One Curve is an independent project. The repository is still named eq-sum. It is
 
 ## Chain
 
-![Three pasted Nova states and their yellow sum](docs/chain.png?v=2)
+![Three pasted Nova states and their yellow sum](docs/chain-view.png)
 
 Paste two or more Copy State strings. Each curve stays on the graph, and the yellow line is those curves added in dB.
 
 ## Match
 
-![A dashed reference with editable nodes, the band row, and knobs](docs/match.png?v=2)
+![A dashed reference with editable nodes, the band row, and knobs](docs/match-view.png)
 
 Freeze the chain sum as a dashed reference. Shape up to three smaller Novas, four bands each plus a high-pass and a low-pass, by dragging nodes or turning the knobs. Copy state when it is close enough to paste back.
 
 ## Preview
 
-![The held eye showing only the yellow sum and the dashed reference](docs/preview.png?v=2)
+![The held eye showing only the yellow sum and the dashed reference](docs/preview-view.png)
 
 Hold the eye at the top-right of the Match graph to hide the nodes and leave only the yellow sum and the dashed reference.
 
