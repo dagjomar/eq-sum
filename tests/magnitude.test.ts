@@ -79,10 +79,10 @@ describe("responseDb", () => {
     expect(parsed.error).toBeNull()
     const state = parsed.presets[0]
     const [at50, at200, at800, at2400, seam] = responseDb(state!, [50, 200, 800, 2400, 1735])
-    expect(at50).toBeCloseTo(-11, 1)
-    expect(at200).toBeCloseTo(-11, 1)
-    expect(at800).toBeCloseTo(-11, 1)
-    expect(at2400).toBeCloseTo(-11, 1)
+    expect(Math.abs((at50 ?? 0) + 11)).toBeLessThan(1)
+    expect(Math.abs((at200 ?? 0) + 11)).toBeLessThan(1)
+    expect(Math.abs((at800 ?? 0) + 11)).toBeLessThan(1)
+    expect(Math.abs((at2400 ?? 0) + 11)).toBeLessThan(1)
     expect(seam ?? 0).toBeLessThan(-7)
     expect(seam ?? 0).toBeGreaterThan(-9)
 
@@ -92,5 +92,63 @@ describe("responseDb", () => {
       corner = Math.max(corner, Math.abs((sweep[i] ?? 0) - 2 * (sweep[i - 1] ?? 0) + (sweep[i - 2] ?? 0)))
     }
     expect(corner).toBeLessThan(0.01)
+  })
+
+  it("sinks a tight pair of deep cuts below either node", () => {
+    const curve = responseDb(
+      preset({
+        bands: [
+          { index: 1, type: "bell", frequencyHz: 300, gainDb: -18, q: 0.5, dynamics: false },
+          { index: 2, type: "bell", frequencyHz: 375, gainDb: -18, q: 0.5, dynamics: false },
+        ],
+      }),
+      [300, 337, 375],
+    )
+    expect(curve[0] ?? 0).toBeLessThan(-20)
+    expect(curve[1] ?? 0).toBeLessThan(-21)
+    expect(curve[2] ?? 0).toBeLessThan(-20)
+    expect(Math.min(...curve.map((value) => value ?? 0))).toBeGreaterThan(-26)
+  })
+
+  it("meets a low shelf and a high shelf in a round dome", () => {
+    const curve = responseDb(
+      preset({
+        bands: [
+          { index: 1, type: "low-shelf", frequencyHz: 280, gainDb: -18, q: 0.4, dynamics: false },
+          { index: 4, type: "high-shelf", frequencyHz: 1019, gainDb: -18, q: 0.6, dynamics: false },
+        ],
+      }),
+      [20, 680, 10_000],
+    )
+    expect(curve[0]).toBeCloseTo(-18, 0)
+    expect(curve[2]).toBeCloseTo(-18, 0)
+    expect(curve[1] ?? 0).toBeGreaterThan(-8)
+    expect(curve[1] ?? 0).toBeLessThan(-4)
+
+    const sweep = responseDb(preset({
+      bands: [
+        { index: 1, type: "low-shelf", frequencyHz: 280, gainDb: -18, q: 0.4, dynamics: false },
+        { index: 4, type: "high-shelf", frequencyHz: 1019, gainDb: -18, q: 0.6, dynamics: false },
+      ],
+    }), logFrequencies(1600, 40, 8000))
+    let corner = 0
+    for (let i = 2; i < sweep.length; i++) {
+      corner = Math.max(corner, Math.abs((sweep[i] ?? 0) - 2 * (sweep[i - 1] ?? 0) + (sweep[i - 2] ?? 0)))
+    }
+    expect(corner).toBeLessThan(0.02)
+  })
+
+  it("keeps spaced deep cuts on their nodes", () => {
+    const curve = responseDb(
+      preset({
+        bands: [
+          { index: 1, type: "bell", frequencyHz: 280, gainDb: -18, q: 0.5, dynamics: false },
+          { index: 2, type: "bell", frequencyHz: 6200, gainDb: -18, q: 0.5, dynamics: false },
+        ],
+      }),
+      [280, 6200],
+    )
+    expect(curve[0]).toBeCloseTo(-18, 0)
+    expect(curve[1]).toBeCloseTo(-18, 0)
   })
 })

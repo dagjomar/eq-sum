@@ -28,56 +28,55 @@ export function logFrequencies(count: number, startHz = 10, endHz = 40_000): num
 }
 
 function gainAt(preset: NovaPreset, frequency: number): number {
-  const bells: number[] = []
+  const cuts: number[] = []
+  const boosts: number[] = []
   let gain = preset.wideGainDb
   for (const band of preset.bands) {
     const response = biquadDb(band.type, frequency, band.frequencyHz, band.gainDb, Math.max(band.q, MIN_Q))
-    if (band.type === "bell") bells.push(response)
-    else gain += response
+    if (response < -1e-4) cuts.push(response)
+    else if (response > 1e-4) boosts.push(response)
   }
-  gain += parallelBellsDb(bells)
+  gain += parallelGroup(cuts, -1)
+  gain += parallelGroup(boosts, 1)
   if (preset.highPass) gain += endFilterDb(preset.highPass, frequency, "hp")
   if (preset.lowPass) gain += endFilterDb(preset.lowPass, frequency, "lp")
   return gain
 }
 
 /**
- * Width, in dB, of the round join where two bell skirts cross.
- * A hard min or max leaves a point there. The join moves the crossing by
- * SEAM_DB / 4 and fades out again once the skirts are this far apart.
+ * Bells and shelves share one parallel path. Same-sign bands follow the stronger
+ * skirt instead of stacking, so a low shelf and a high shelf meet in a dome.
+ * The soft pair keeps that crossing round. A tight pair still sinks a little
+ * below either node. Opposite signs add, but each side stays in its own group.
  */
-const SEAM_DB = 6
-
-/**
- * Nova bells share one parallel path. Adding their magnitudes stacks overlapping
- * skirts, so two wide cuts sink below either band. Same-direction bands follow
- * the stronger skirt, with a round join where they cross. Opposite signs can
- * cancel, but they stay inside the range the individual bells already span.
- */
-function parallelBellsDb(responses: number[]): number {
+function parallelGroup(responses: number[], direction: -1 | 1): number {
   if (responses.length === 0) return 0
   if (responses.length === 1) return responses[0] ?? 0
-  const ordered = responses.slice().sort((a, b) => a - b)
-  const low = ordered[0] ?? 0
-  const high = ordered[ordered.length - 1] ?? 0
-  if (high <= 0) return roundedToward(low, ordered[1] ?? low, -1)
-  if (low >= 0) return roundedToward(high, ordered[ordered.length - 2] ?? high, 1)
-  let sum = 0
-  for (const response of responses) sum += response
-  return Math.min(high, Math.max(low, sum))
+  let primary = direction < 0 ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY
+  let second = primary
+  for (const response of responses) {
+    const stronger = direction < 0 ? response < primary : response > primary
+    const runner = direction < 0 ? response < second : response > second
+    if (stronger) {
+      second = primary
+      primary = response
+    } else if (runner) {
+      second = response
+    }
+  }
+  if (!Number.isFinite(second)) return primary
+  return smoothPair(primary, second, direction)
 }
 
-function roundedToward(primary: number, other: number, direction: -1 | 1): number {
-  const gap = Math.abs(primary - other)
-  const room = Math.max(SEAM_DB - gap, 0) / SEAM_DB
-  const bump = ((room * room * SEAM_DB) / 4) * seamGate(primary)
-  return primary + direction * bump
-}
-
-/** Full rounding once a skirt is a few dB from zero, and none on a flat skirt. */
-function seamGate(level: number): number {
-  const t = Math.min(1, Math.max(0, Math.abs(level) / 3))
-  return t * t * (3 - 2 * t)
+function smoothPair(primary: number, other: number, direction: -1 | 1): number {
+  const depth = Math.abs(primary)
+  const tau = 0.9 + (depth / 18) * 5.2
+  if (direction < 0) {
+    const floor = Math.min(primary, other)
+    return floor - tau * Math.log(Math.exp(-(primary - floor) / tau) + Math.exp(-(other - floor) / tau))
+  }
+  const ceiling = Math.max(primary, other)
+  return ceiling + tau * Math.log(Math.exp((primary - ceiling) / tau) + Math.exp((other - ceiling) / tau))
 }
 
 function endFilterDb(filter: NovaFilter, frequency: number, kind: "hp" | "lp"): number {

@@ -154,10 +154,9 @@ h2 { font-size: 0.95rem; }
 
 .graph-panel { padding: 0.7rem 0.7rem 0.55rem; }
 
-.graph-frame.is-match { height: 24rem; }
-
 .graph-frame {
   position: relative;
+  width: 100%;
   height: 20rem;
   background: #101114;
   border-radius: 8px;

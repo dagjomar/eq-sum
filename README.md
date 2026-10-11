@@ -44,7 +44,7 @@ Static curves only. There is no audio processing.
 
 Dynamics, dry mix, bypass, delta, auto-gain, and output gain are called out when a state includes them. They are not drawn into the curve.
 
-Inside one Nova, bells are parallel. Overlapping cuts or boosts follow the stronger band, and the skirts meet in a round join instead of stacking. Across separate plugins, dB addition is the model once each curve is right.
+Inside one Nova, bells and shelves are parallel. Spaced cuts or boosts follow the stronger band, and the skirts meet in a round join. A tight pair sinks a little below the nodes. Across separate plugins, dB addition is the model once each curve is right.
 
 ## Develop
 

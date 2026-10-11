@@ -22,6 +22,7 @@ const STORAGE_KEY = "eq-sum/v1"
 const FREQUENCIES = logFrequencies(640)
 const COLORS = ["#ff5d6c", "#3ddc84", "#c084fc", "#5b9dff", "#f0a35e", "#f2e38a", "#2dd4bf", "#fb7185"]
 const SUM_COLOR = "#f0c36a"
+const BAND_GAIN_DB = 18
 const SHAPES: [BandType, string][] = [
   ["low-shelf", "M2 12 H8 C12 12 13 4 18 4 H30"],
   ["bell", "M2 12 C8 12 10 3 16 3 C22 3 24 12 30 12"],
@@ -105,7 +106,7 @@ app.innerHTML = `
       <div class="legend">
         <p id="legend-label"></p>
         <p id="scale-hint" class="hint"></p>
-        <p class="range" title="Presets add in dB. Inside one Nova, overlapping bells follow the stronger band, with a round join where the skirts meet. Wideband gain is a flat offset.">10 Hz – 40 kHz</p>
+        <p class="range" title="Presets add in dB. Inside one Nova, bells and shelves follow the stronger band and meet in a round join. A tight pair sinks a little below the nodes. Wideband gain is a flat offset.">10 Hz – 40 kHz</p>
       </div>
       <p id="readout" class="readout"></p>
     </section>
@@ -170,7 +171,6 @@ const tabChain = required<HTMLButtonElement>("#tab-chain")
 const tabMatch = required<HTMLButtonElement>("#tab-match")
 const chainLayout = required<HTMLElement>("#chain-layout")
 const matchLayout = required<HTMLElement>("#match-layout")
-const graphFrame = required<HTMLElement>("#graph-frame")
 const finalViewButton = required<HTMLButtonElement>("#final-view")
 const matchRows = required<HTMLElement>("#match-rows")
 const editor = required<HTMLElement>("#editor")
@@ -326,7 +326,6 @@ function render(): void {
   tabMatch.setAttribute("aria-selected", String(mode === "match"))
   chainLayout.hidden = mode !== "chain"
   matchLayout.hidden = mode !== "match"
-  graphFrame.classList.toggle("is-match", mode === "match")
   finalViewButton.hidden = mode !== "match"
   if (mode !== "match") finalView = false
   finalViewButton.classList.toggle("is-held", finalView)
@@ -599,8 +598,8 @@ function renderEditor(): void {
     const gain = createKnob({
       label: "GAIN",
       value: band.gainDb,
-      min: -12,
-      max: 12,
+      min: -BAND_GAIN_DB,
+      max: BAND_GAIN_DB,
       size: 96,
       curve: "linear",
       format: formatGain,
@@ -812,7 +811,7 @@ function onGraphPointerMove(event: PointerEvent): void {
     const located = findBand(drag.handleId)
     if (!located) return
     located.band.frequencyHz = frequency
-    located.band.gainDb = clamp(yToDb(point.y, rect.height, rangeDb), -12, 12, located.band.gainDb)
+    located.band.gainDb = clamp(yToDb(point.y, rect.height, rangeDb), -BAND_GAIN_DB, BAND_GAIN_DB, located.band.gainDb)
     liveKnobs.freq?.setValue(located.band.frequencyHz)
     liveKnobs.gain?.setValue(located.band.gainDb)
   }
@@ -837,7 +836,7 @@ function onGraphDoubleClick(event: MouseEvent): void {
   if (slot < 0) return
   const band = createBand()
   band.frequencyHz = clamp(xToFrequency(point.x, rect.width), 10, 40_000, 1000)
-  band.gainDb = clamp(yToDb(point.y, rect.height, rangeDb), -12, 12, 0)
+  band.gainDb = clamp(yToDb(point.y, rect.height, rangeDb), -BAND_GAIN_DB, BAND_GAIN_DB, 0)
   instance.bands[slot] = band
   selectedBandId = band.id
   selectedCut = null

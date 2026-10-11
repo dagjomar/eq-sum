@@ -158,7 +158,7 @@ function drawLabels(
   context.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace"
   context.textAlign = "right"
   context.textBaseline = "middle"
-  for (let db = -rangeDb; db <= rangeDb; db += rangeDb / 2) {
+  for (let db = -rangeDb; db <= rangeDb; db += rangeDb / 4) {
     context.fillText(db > 0 ? `+${db}` : `${db}`, PAD.left - 8, dbToY(db, height, rangeDb))
   }
 
