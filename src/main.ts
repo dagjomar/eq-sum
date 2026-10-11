@@ -1,10 +1,9 @@
 import { EXAMPLE_PASTE } from "./example"
-import { drawGraph, handleAtPoint, indexFromX, xToFrequency, yToDb, type DrawnCurve, type GraphHandle } from "./graph"
+import { drawGraph, handleAtPoint, indexFromX, labelColor, xToFrequency, yToDb, type DrawnCurve, type GraphHandle } from "./graph"
 import { createKnob, type KnobController } from "./knob"
 import {
   FILTER_SLOPES,
   emptyBands,
-  fitError,
   normalizeMatch,
   stepSlope,
   toPreset,
@@ -36,6 +35,7 @@ const ICONS = {
   mute: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h3.5L12 6.5v11L7.5 14H4v-4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M16 9.5a3.8 3.8 0 0 1 0 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
   muted: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h3.5L12 6.5v11L7.5 14H4v-4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V5h6v2M8 7l.8 12h6.4L16 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
 }
 
 interface Instance {
@@ -53,7 +53,6 @@ interface Persisted {
   instances: Instance[]
   mode: "chain" | "match"
   budget: NodeBudget
-  reference: number[] | null
   matches: MatchInstance[]
   selectedMatchId: string | null
   selectedBandId: string | null
@@ -65,7 +64,6 @@ let instances = saved.instances
 let rangeDb = saved.rangeDb
 let mode = saved.mode
 let budget = saved.budget
-let reference = saved.reference
 let matches = saved.matches
 let selectedMatchId = saved.selectedMatchId
 let selectedBandId = saved.selectedBandId
@@ -141,14 +139,9 @@ app.innerHTML = `
       <section class="panel">
         <div class="panel-head">
           <h2>Match</h2>
-          <button id="refresh-reference" class="text" type="button">Refresh reference</button>
-        </div>
-        <p class="meta match-note">Dashed line is the chain sum. Drag a node, scroll a band for Q, or scroll a high-pass or low-pass for slope.</p>
-        <p id="fit-error" class="meta"></p>
-        <div class="actions">
-          <button id="add-nova" type="button">Add Nova</button>
         </div>
         <ol id="match-rows" class="rows"></ol>
+        <button id="add-nova" class="add-nova" type="button" aria-label="Add Nova">${ICONS.plus}</button>
       </section>
       <section class="panel">
         <div class="panel-head">
@@ -182,7 +175,6 @@ const finalViewButton = required<HTMLButtonElement>("#final-view")
 const matchRows = required<HTMLElement>("#match-rows")
 const editor = required<HTMLElement>("#editor")
 const editorTitle = required<HTMLElement>("#editor-title")
-const fitErrorLabel = required<HTMLElement>("#fit-error")
 const addNovaButton = required<HTMLButtonElement>("#add-nova")
 const copyStateButton = required<HTMLButtonElement>("#copy-state")
 
@@ -198,11 +190,6 @@ scale12.addEventListener("click", () => setRange(12))
 scale24.addEventListener("click", () => setRange(24))
 tabChain.addEventListener("click", () => showMode("chain"))
 tabMatch.addEventListener("click", () => showMode("match"))
-required<HTMLButtonElement>("#refresh-reference").addEventListener("click", () => {
-  captureReference()
-  persist()
-  render()
-})
 addNovaButton.addEventListener("click", () => {
   if (!canAddNova()) return
   const created = createMatch()
@@ -447,10 +434,16 @@ function visibleInstances(): Instance[] {
   return instances.filter((instance) => !instance.muted)
 }
 
+function chainReference(): number[] {
+  const sum = sumCurves(visibleInstances().map((instance) => responseDb(instance.preset, FREQUENCIES)))
+  return sum.length > 0 ? sum : FREQUENCIES.map(() => 0)
+}
+
 function drawMatch(): void {
   const audible = visibleMatches()
   const curves = audible.map((instance) => responseDb(toPreset(instance), FREQUENCIES))
   const sum = sumCurves(curves)
+  const reference = chainReference()
   const drawn: DrawnCurve[] = []
   if (!finalView && audible.length > 1) {
     audible.forEach((instance, index) => {
@@ -458,7 +451,7 @@ function drawMatch(): void {
     })
   }
   if (sum.length > 0) drawn.push({ color: SUM_COLOR, width: 2.25, values: sum, fill: false })
-  if (reference) drawn.push({ color: "#d5d5dc", width: 1.35, values: reference, fill: false, dash: [5, 4] })
+  drawn.push({ color: "#d5d5dc", width: 1.35, values: reference, fill: false, dash: [5, 4] })
   matchHandles = finalView ? [] : buildHandles()
   drawGraph(canvas, FREQUENCIES, drawn, rangeDb, drag ? null : hoverIndex, matchHandles)
 
@@ -466,11 +459,8 @@ function drawMatch(): void {
   empty.hidden = message === ""
   empty.textContent = message
 
-  const error = reference && sum.length > 0 ? fitError(FREQUENCIES, reference, sum) : null
-  fitErrorLabel.textContent = error ? `Off by ${error.mean.toFixed(1)} dB on average, ${error.max.toFixed(1)} dB at worst, from 20 Hz to 20 kHz.` : ""
-
   legendLabel.replaceChildren()
-  if (reference) legendLabel.append(legendItem("#d5d5dc", "Reference"))
+  legendLabel.append(legendItem("#d5d5dc", "Reference"))
   if (sum.length > 0) {
     const soloed = matches.some((instance) => instance.solo)
     const label = finalView ? "Sum" : soloed ? `Match · ${audible.map((instance) => instance.name).join(", ")}` : "Match"
@@ -479,7 +469,7 @@ function drawMatch(): void {
 
   const peak = Math.max(
     sum.reduce((max, value) => Math.max(max, Math.abs(value)), 0),
-    (reference ?? []).reduce((max, value) => Math.max(max, Math.abs(value)), 0),
+    reference.reduce((max, value) => Math.max(max, Math.abs(value)), 0),
   )
   scaleHint.textContent = peak > rangeDb + 0.05 ? `Outside ±${rangeDb} dB` : ""
 
@@ -495,12 +485,11 @@ function drawMatch(): void {
     return
   }
   if (hoverIndex === null || FREQUENCIES[hoverIndex] === undefined) {
-    readout.textContent = reference || audible.length > 0 ? "Drag a node. Scroll a band for Q, or a high-pass or low-pass for slope." : ""
+    readout.textContent = ""
     return
   }
   const frequency = formatFrequency(FREQUENCIES[hoverIndex])
-  const parts = [`${frequency}`]
-  if (reference) parts.push(`Reference ${formatGain(reference[hoverIndex] ?? 0)}`)
+  const parts = [`${frequency}`, `Reference ${formatGain(reference[hoverIndex] ?? 0)}`]
   if (sum.length > 0) parts.push(`Match ${formatGain(sum[hoverIndex] ?? 0)}`)
   readout.textContent = parts.join(" · ")
 }
@@ -658,7 +647,7 @@ function bandSlot(instance: MatchInstance, slot: number): HTMLButtonElement {
   button.dataset.action = "select-band"
   button.dataset.slot = String(slot)
   button.textContent = `${slot + 1}`
-  if (on) button.style.background = instance.color
+  if (on) paintOn(button, instance.color)
   button.setAttribute("aria-pressed", String(on))
   button.setAttribute("aria-label", slotLabel(`Band ${slot + 1}`, on, current))
   return button
@@ -674,10 +663,15 @@ function cutSlot(instance: MatchInstance, kind: "hp" | "lp"): HTMLButtonElement 
   button.dataset.action = "select-cut"
   button.dataset.filter = kind
   button.textContent = kind === "hp" ? "HP" : "LP"
-  if (on) button.style.background = instance.color
+  if (on) paintOn(button, instance.color)
   button.setAttribute("aria-pressed", String(on))
   button.setAttribute("aria-label", slotLabel(kind === "hp" ? "High-pass" : "Low-pass", on, current))
   return button
+}
+
+function paintOn(button: HTMLButtonElement, fill: string): void {
+  button.style.background = fill
+  button.style.setProperty("--pick-ink", labelColor(fill))
 }
 
 function slotLabel(name: string, on: boolean, current: boolean): string {
@@ -987,14 +981,8 @@ function nodeGain(instance: MatchInstance, frequencyHz: number): number {
 
 function showMode(next: "chain" | "match"): void {
   mode = next
-  if (mode === "match" && reference === null) captureReference()
   persist()
   render()
-}
-
-function captureReference(): void {
-  const sum = sumCurves(visibleInstances().map((instance) => responseDb(instance.preset, FREQUENCIES)))
-  reference = sum.length > 0 ? sum : FREQUENCIES.map(() => 0)
 }
 
 function visibleMatches(): MatchInstance[] {
@@ -1140,7 +1128,7 @@ function iconButton(
 }
 
 function persist(): void {
-  const data: Persisted = { version: 2, rangeDb, instances, mode, budget, reference, matches, selectedMatchId, selectedBandId, selectedCut }
+  const data: Persisted = { version: 2, rangeDb, instances, mode, budget, matches, selectedMatchId, selectedBandId, selectedCut }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
 }
 
@@ -1151,7 +1139,6 @@ function load(): Persisted {
     instances: [],
     mode: "chain",
     budget: 4,
-    reference: null,
     matches: [],
     selectedMatchId: null,
     selectedBandId: null,
@@ -1160,17 +1147,15 @@ function load(): Persisted {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return empty
-    const data = JSON.parse(raw) as Partial<Persisted>
+    const data = JSON.parse(raw) as Partial<Persisted> & { reference?: unknown }
     const restored = Array.isArray(data.instances) ? data.instances.filter(isInstance) : []
     const restoredMatches = Array.isArray(data.matches) ? data.matches.filter(isMatch).map(normalizeMatch) : []
-    const referenceOk = Array.isArray(data.reference) && data.reference.length === FREQUENCIES.length ? data.reference : null
     return {
       version: 2,
       rangeDb: data.rangeDb === 24 ? 24 : 12,
       instances: restored,
       mode: data.mode === "match" ? "match" : "chain",
       budget: data.budget === 8 || data.budget === 12 ? data.budget : 4,
-      reference: referenceOk,
       matches: restoredMatches,
       selectedMatchId: typeof data.selectedMatchId === "string" ? data.selectedMatchId : null,
       selectedBandId: typeof data.selectedBandId === "string" ? data.selectedBandId : null,

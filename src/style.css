@@ -94,8 +94,6 @@ button.text {
   color: #fff;
 }
 
-.match-note { margin-bottom: 0.35rem; }
-
 .warn { color: var(--warn); }
 
 .legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -296,6 +294,25 @@ textarea {
   overflow: auto;
 }
 
+.add-nova {
+  width: 100%;
+  margin-top: 0.35rem;
+  display: grid;
+  place-items: center;
+  min-height: 2.15rem;
+  padding: 0.35rem;
+  background: #121216;
+  border: 1px dashed #3a3a42;
+  border-radius: 8px;
+  color: #9a9aa3;
+}
+
+.add-nova svg { width: 1rem; height: 1rem; }
+
+.add-nova:hover { color: #fff; border-color: #5c5c66; background: #1a1a1e; }
+
+.add-nova:disabled { opacity: 0.28; cursor: default; }
+
 .row {
   display: grid;
   grid-template-columns: 1.25rem 0.55rem minmax(0, 1fr) auto auto;
@@ -382,9 +399,11 @@ textarea {
   padding: 0;
   border-radius: 99px;
   background: #2a2a30;
-  color: #fff;
+  color: #8a8a93;
   font-size: 0.78rem;
 }
+
+.pick.is-on { color: var(--pick-ink, #141416); }
 
 .pick.is-off {
   background: transparent;

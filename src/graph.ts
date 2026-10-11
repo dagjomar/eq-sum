@@ -248,13 +248,26 @@ function drawHandle(
   context.stroke()
 }
 
-function labelColor(hex: string): string {
+const DARK_LABEL = "#141416"
+const LIGHT_LABEL = "#f4f1ea"
+// sRGB relative luminance. Pale fills (yellow, peach, pink, and lighter) use
+// near-black; darker fills such as #ff5d6c stay on the light label.
+const LIGHT_FILL = 0.32
+
+function relativeLuminance(hex: string): number {
   const value = hex.replace("#", "")
-  const r = Number.parseInt(value.slice(0, 2), 16)
-  const g = Number.parseInt(value.slice(2, 4), 16)
-  const b = Number.parseInt(value.slice(4, 6), 16)
-  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
-  return luma > 150 ? "#141416" : "#f4f1ea"
+  const channels = [0, 2, 4].map((start) => {
+    const channel = Number.parseInt(value.slice(start, start + 2), 16) / 255
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  })
+  const red = channels[0] ?? 0
+  const green = channels[1] ?? 0
+  const blue = channels[2] ?? 0
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+}
+
+export function labelColor(fill: string): string {
+  return relativeLuminance(fill) > LIGHT_FILL ? DARK_LABEL : LIGHT_LABEL
 }
 
 function hexWithAlpha(hex: string, alpha: number): string {
