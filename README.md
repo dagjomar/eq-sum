@@ -1,10 +1,14 @@
 # eq-sum
 
-**See what a stack of TDR Novas adds up to, then fold it back into one, two, or three presets you can paste.**
+## The problem to solve
 
-You already have several [TDR Nova](https://www.tokyodawn.net/tdr-nova/) instances on a channel, or a chain of corrective and tonal Novas, and you want the combined curve. Paste each Copy State, check it against the plugin, and read the yellow sum in dB. On Match, freeze that sum and hand-shape a smaller preset, then copy a Paste State back into the session.
+You have added too many equalizer instances, each correcting a different part, and now you have lost control. Today that stack is TDR Nova instances, each doing one correction, until the combined curve is no longer something you can see or reason about.
 
-It is tailored for TDR Nova and Nova GE Copy State / Paste State. It runs in the browser. Nothing is uploaded.
+## The solution
+
+This tool helps you combine the EQs to a single curve and lets you try to estimate that curve with one or more EQs, so you can simplify your EQ stack, reduce the number of bands, and keep things simple. Paste those Copy States, see them added into one curve, then shape that curve back down with fewer EQs (one or more, up to three Novas in this app).
+
+It is tailored for [TDR Nova](https://www.tokyodawn.net/tdr-nova/) and Nova GE Copy State / Paste State right now. It runs in the browser. Nothing is uploaded.
 
 eq-sum is an independent project. It is not affiliated with or endorsed by Tokyo Dawn Records, and there is no collaboration. The author would love the TDR Nova team to reach out. This is a feature they would love to see built into TDR Nova, or offered as a separate downloadable plugin.
 
