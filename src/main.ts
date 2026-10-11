@@ -105,7 +105,7 @@ app.innerHTML = `
       <div class="legend">
         <p id="legend-label"></p>
         <p id="scale-hint" class="hint"></p>
-        <p class="range" title="Presets add in dB. Overlapping bands inside one Nova can differ a little, because Nova’s bands are parallel. Wideband gain is drawn as a flat offset.">10 Hz – 40 kHz</p>
+        <p class="range" title="Presets add in dB. Inside one Nova, overlapping bells follow the stronger band, with a round join where the skirts meet. Wideband gain is a flat offset.">10 Hz – 40 kHz</p>
       </div>
       <p id="readout" class="readout"></p>
     </section>
