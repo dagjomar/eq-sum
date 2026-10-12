@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { magicMatch, seedFromResidual } from "../src/magicMatch"
+import { detectFeatures, magicMatch, seedFromResidual } from "../src/magicMatch"
 import { fitError, toPreset } from "../src/match"
 import { logFrequencies, responseDb } from "../src/nova/magnitude"
 import type { NovaPreset } from "../src/nova/types"
@@ -29,8 +29,27 @@ function mulberry32(seed: number): () => number {
   }
 }
 
+function localAbsError(
+  frequencies: number[],
+  reference: number[],
+  actual: number[],
+  centerHz: number,
+  halfWidth = 0.45,
+): number {
+  const center = Math.log(centerHz)
+  let total = 0
+  let count = 0
+  for (let i = 0; i < frequencies.length; i++) {
+    const frequency = frequencies[i] ?? 0
+    if (Math.abs(Math.log(frequency) - center) > halfWidth) continue
+    total += Math.abs((actual[i] ?? 0) - (reference[i] ?? 0))
+    count += 1
+  }
+  return count === 0 ? Infinity : total / count
+}
+
 describe("magicMatch", () => {
-  it("recovers a single mid-band bell roughly", () => {
+  it("recovers a single mid-band bell tightly", () => {
     const reference = responseDb(
       preset({
         bands: [{ index: 1, type: "bell", frequencyHz: 1000, gainDb: 6, q: 1.2, dynamics: false }],
@@ -40,9 +59,9 @@ describe("magicMatch", () => {
     const result = magicMatch(reference, FREQUENCIES, { random: mulberry32(7) })
     const enabled = result.bands.filter((band) => band?.enabled)
     expect(enabled.length).toBeGreaterThanOrEqual(1)
-    expect(enabled.length).toBeLessThanOrEqual(4)
-    expect(result.error.mean).toBeLessThan(0.75)
-    expect(result.error.max).toBeLessThan(2.5)
+    expect(enabled.length).toBeLessThanOrEqual(2)
+    expect(result.error.mean).toBeLessThan(0.35)
+    expect(result.error.max).toBeLessThan(1.25)
 
     const closest = enabled.reduce((best, band) => {
       if (!band) return best
@@ -50,13 +69,15 @@ describe("magicMatch", () => {
       return Math.abs(Math.log(band.frequencyHz / 1000)) < Math.abs(Math.log(best.frequencyHz / 1000)) ? band : best
     }, null as (typeof enabled)[number])
     expect(closest).toBeTruthy()
-    expect(closest!.frequencyHz).toBeGreaterThan(700)
-    expect(closest!.frequencyHz).toBeLessThan(1400)
-    expect(closest!.gainDb).toBeGreaterThan(4)
-    expect(closest!.gainDb).toBeLessThan(8)
+    expect(closest!.type).toBe("bell")
+    expect(closest!.frequencyHz).toBeGreaterThan(850)
+    expect(closest!.frequencyHz).toBeLessThan(1200)
+    expect(closest!.gainDb).toBeGreaterThan(5)
+    expect(closest!.gainDb).toBeLessThan(7.2)
+    expect(closest!.q).toBeGreaterThan(0.55)
   })
 
-  it("fits two opposite-sign bells better than an empty Nova", () => {
+  it("nails both opposite-sign bells locally, not just the global mean", () => {
     const reference = responseDb(
       preset({
         bands: [
@@ -68,12 +89,44 @@ describe("magicMatch", () => {
     )
     const empty = fitError(FREQUENCIES, reference, FREQUENCIES.map(() => 0))
     const result = magicMatch(reference, FREQUENCIES, { random: mulberry32(19) })
+    const actual = responseDb(
+      toPreset({
+        id: "x",
+        name: "x",
+        color: "#000",
+        muted: false,
+        solo: false,
+        bands: result.bands,
+        highPass: result.highPass,
+        lowPass: result.lowPass,
+      }),
+      FREQUENCIES,
+    )
     expect(empty).toBeTruthy()
-    expect(result.error.mean).toBeLessThan((empty?.mean ?? 99) * 0.45)
+    expect(result.error.mean).toBeLessThan((empty?.mean ?? 99) * 0.35)
     expect(result.bands.filter((band) => band?.enabled).length).toBeGreaterThanOrEqual(2)
-    expect(result.bands.filter((band) => band?.enabled).length).toBeLessThanOrEqual(4)
-    expect(Number.isFinite(result.error.mean)).toBe(true)
-    expect(Number.isFinite(result.error.max)).toBe(true)
+    expect(localAbsError(FREQUENCIES, reference, actual, 200)).toBeLessThan(1.1)
+    expect(localAbsError(FREQUENCIES, reference, actual, 3000)).toBeLessThan(1.1)
+  })
+
+  it("avoids ultra-wide Q smear when a narrower bell fits the feature", () => {
+    const reference = responseDb(
+      preset({
+        bands: [{ index: 1, type: "bell", frequencyHz: 2500, gainDb: -7, q: 1.6, dynamics: false }],
+      }),
+      FREQUENCIES,
+    )
+    const result = magicMatch(reference, FREQUENCIES, { random: mulberry32(11) })
+    const enabled = result.bands.filter((band) => band?.enabled)
+    expect(enabled.length).toBeGreaterThanOrEqual(1)
+    const closest = enabled.reduce((best, band) => {
+      if (!band) return best
+      if (!best) return band
+      return Math.abs(Math.log(band.frequencyHz / 2500)) < Math.abs(Math.log(best.frequencyHz / 2500)) ? band : best
+    }, null as (typeof enabled)[number])
+    expect(closest).toBeTruthy()
+    expect(closest!.q).toBeGreaterThan(0.7)
+    expect(result.error.mean).toBeLessThan(0.45)
   })
 
   it("prefers a low shelf when seeding a wide bass shelf residual", () => {
@@ -96,6 +149,8 @@ describe("magicMatch", () => {
       }
       return best
     })
+    const features = detectFeatures(searchFreqs, searchRef)
+    expect(features.some((feature) => feature.preferredType === "low-shelf")).toBe(true)
     const seed = seedFromResidual(searchFreqs, searchRef)
     const active = seed.bands.filter((band) => band.enabled)
     expect(active.some((band) => band.type === "low-shelf")).toBe(true)
