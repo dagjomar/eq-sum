@@ -1106,9 +1106,10 @@ main {
   }
 
   .hero {
-    min-height: calc(100svh - 3.5rem);
-    justify-content: flex-end;
-    padding: 2rem var(--gutter) 2.5rem;
+    /* Content-sized: avoid a tall empty band above the headline */
+    min-height: 0;
+    justify-content: flex-start;
+    padding: 1.25rem var(--gutter) 3.5rem;
   }
 
   .hero__content {
