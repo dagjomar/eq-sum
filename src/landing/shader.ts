@@ -62,8 +62,14 @@ void main() {
 
     color += eqAnalyzerGrid(uv, u_resolution, mouseNorm);
 
-    float centerLine = smoothstep(0.003, 0.0, abs(y - 0.5));
-    color += vec3(0.18, 0.22, 0.28) * centerLine * 0.35;
+    // Keep the animated stack mostly low; allow peaks ~20% above mid
+    float baseline = 0.34;
+    float amp = 0.82;
+    // Soft gate so glow fades before the headline (ceiling ~70%)
+    float lowerGate = smoothstep(0.72, 0.56, y);
+
+    float centerLine = smoothstep(0.003, 0.0, abs(y - baseline));
+    color += vec3(0.18, 0.22, 0.28) * centerLine * 0.35 * lowerGate;
 
     float c1_f1 = 0.25 + 0.08 * sin(t * 0.7);
     float c1_g1 = 0.14 * sin(t * 0.9 + 1.2);
@@ -71,10 +77,10 @@ void main() {
     float c1_f2 = 0.65 + 0.06 * cos(t * 0.8 + 0.4);
     float c1_g2 = -0.12 * cos(t * 1.1 + 0.5);
     float c1_q2 = 4.0 + 1.5 * sin(t * 0.5);
-    float curve1 = 0.5 + eqBell(x, c1_f1, c1_g1, c1_q1) + eqBell(x, c1_f2, c1_g2, c1_q2) + eqShelfLow(x, 0.15, 0.06 * sin(t * 0.4));
+    float curve1 = baseline + amp * (eqBell(x, c1_f1, c1_g1, c1_q1) + eqBell(x, c1_f2, c1_g2, c1_q2) + eqShelfLow(x, 0.15, 0.06 * sin(t * 0.4)));
     float dist1 = abs(y - curve1);
     float glow1 = 0.015 / (dist1 * dist1 + 0.008);
-    color += vec3(0.02, 0.65, 0.95) * glow1 * 0.28;
+    color += vec3(0.02, 0.65, 0.95) * glow1 * 0.28 * lowerGate;
 
     float c2_f1 = 0.38 + 0.07 * cos(t * 0.5 + 2.0);
     float c2_g1 = -0.15 * sin(t * 0.75 + 0.8);
@@ -82,10 +88,10 @@ void main() {
     float c2_f2 = 0.78 + 0.05 * sin(t * 0.95 + 3.1);
     float c2_g2 = 0.16 * cos(t * 0.65 + 1.7);
     float c2_q2 = 5.5 + 2.0 * cos(t * 0.7);
-    float curve2 = 0.5 + eqBell(x, c2_f1, c2_g1, c2_q1) + eqBell(x, c2_f2, c2_g2, c2_q2);
+    float curve2 = baseline + amp * (eqBell(x, c2_f1, c2_g1, c2_q1) + eqBell(x, c2_f2, c2_g2, c2_q2));
     float dist2 = abs(y - curve2);
     float glow2 = 0.012 / (dist2 * dist2 + 0.007);
-    color += vec3(0.62, 0.25, 0.98) * glow2 * 0.26;
+    color += vec3(0.62, 0.25, 0.98) * glow2 * 0.26 * lowerGate;
 
     float c3_f1 = 0.18 + 0.05 * sin(t * 0.6 + 0.9);
     float c3_g1 = -0.18 * cos(t * 0.8 + 2.4);
@@ -93,22 +99,22 @@ void main() {
     float c3_f2 = 0.50 + 0.08 * sin(t * 0.85 + 1.5);
     float c3_g2 = 0.13 * sin(t * 1.05 + 0.2);
     float c3_q2 = 7.0 + 3.0 * sin(t * 0.9);
-    float curve3 = 0.5 + eqBell(x, c3_f1, c3_g1, c3_q1) + eqBell(x, c3_f2, c3_g2, c3_q2) + eqShelfHigh(x, 0.82, -0.08 * cos(t * 0.5));
+    float curve3 = baseline + amp * (eqBell(x, c3_f1, c3_g1, c3_q1) + eqBell(x, c3_f2, c3_g2, c3_q2) + eqShelfHigh(x, 0.82, -0.08 * cos(t * 0.5)));
     float dist3 = abs(y - curve3);
     float glow3 = 0.012 / (dist3 * dist3 + 0.006);
-    color += vec3(0.96, 0.20, 0.60) * glow3 * 0.25;
+    color += vec3(0.96, 0.20, 0.60) * glow3 * 0.25 * lowerGate;
 
-    float finalSum = (curve1 - 0.5) + (curve2 - 0.5) + (curve3 - 0.5) + mouseWave;
-    float sumCurve = 0.5 + finalSum * 0.85;
+    float finalSum = ((curve1 - baseline) + (curve2 - baseline) + (curve3 - baseline)) / amp + mouseWave;
+    float sumCurve = baseline + amp * finalSum * 0.85;
     float distSum = abs(y - sumCurve);
-    float coreLine = smoothstep(0.0045, 0.0008, distSum);
+    float coreLine = smoothstep(0.0045, 0.0008, distSum) * lowerGate;
     float sumAura = 0.008 / (distSum * distSum + 0.0018);
     vec3 colGold = vec3(1.0, 0.82, 0.12);
     vec3 colAmberCore = vec3(1.0, 0.95, 0.55);
-    color += colGold * sumAura * 0.52;
+    color += colGold * sumAura * 0.52 * lowerGate;
     color = mix(color, colAmberCore, coreLine);
 
-    float vignette = smoothstep(1.3, 0.35, length((uv - 0.5) * vec2(1.1, 1.4)));
+    float vignette = smoothstep(1.3, 0.35, length((uv - vec2(0.5, 0.42)) * vec2(1.1, 1.35)));
     color *= vignette;
 
     gl_FragColor = vec4(color, 1.0);

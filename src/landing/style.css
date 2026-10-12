@@ -232,7 +232,8 @@ main {
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 4rem var(--gutter) 5rem;
+  /* Extra bottom room so curves sit under the copy */
+  padding: 3rem var(--gutter) 7rem;
   overflow: hidden;
 }
 
@@ -266,6 +267,8 @@ main {
   flex-direction: column;
   align-items: center;
   gap: 1.5rem;
+  /* Nudge headline/CTA into the upper band, clear of the curve glow */
+  transform: translateY(-6vh);
 }
 
 .hero__title {
@@ -1111,6 +1114,7 @@ main {
   .hero__content {
     gap: 1.1rem;
     width: 100%;
+    transform: none;
   }
 
   .hero__title {
