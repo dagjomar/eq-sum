@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { detectFeatures, magicMatch, seedFromResidual } from "../src/magicMatch"
+import { detectEndFilterHints, detectFeatures, magicMatch, seedFromResidual } from "../src/magicMatch"
 import { fitError, toPreset } from "../src/match"
 import { logFrequencies, responseDb } from "../src/nova/magnitude"
 import { parseStates } from "../src/nova/parse"
@@ -192,6 +192,27 @@ describe("magicMatch", () => {
     )
     const lowIndex = FREQUENCIES.findIndex((frequency) => frequency >= 15)
     expect(Math.abs(actual[lowIndex] ?? 99)).toBeLessThan(5)
+  })
+
+  it("prefers HP and LP for steep end roll-offs instead of shelves", () => {
+    const pasted = parseStates(`<TDRNova bandActive_1="Off" bandGain_1="0.0" bandQ_1="1.00" bandFreq_1="1000" bandType_1="Bell" bandDynActive_1="Off" bandActive_2="On" bandGain_2="-18.0" bandQ_2="1.01" bandFreq_2="708.73" bandType_2="Bell" bandDynActive_2="Off" bandActive_3="Off" bandGain_3="0.0" bandQ_3="1.00" bandFreq_3="1000" bandType_3="Bell" bandDynActive_3="Off" bandActive_4="Off" bandGain_4="0.0" bandQ_4="1.00" bandFreq_4="1000" bandType_4="Bell" bandDynActive_4="Off" hpActive_master="On" hpFreq_master="45.42" hpType_master="12dB/oct" lpActive_master="On" lpFreq_master="7793.97" lpType_master="12dB/oct" bandGain_wide="0.0" bandDynActive_wide="Off" dryMix_master="0.0" eqAutoGainParam="Off" bypass_master="Off" delta_master="Off" />`)
+    const reference = responseDb(pasted.presets[0]!, FREQUENCIES)
+    const hints = detectEndFilterHints(FREQUENCIES, reference)
+    expect(hints.highPass).toBe(true)
+    expect(hints.lowPass).toBe(true)
+
+    const result = magicMatch(reference, FREQUENCIES, { random: mulberry32(9) })
+    expect(result.highPass?.enabled).toBe(true)
+    expect(result.lowPass?.enabled).toBe(true)
+    expect(result.highPass!.frequencyHz).toBeGreaterThan(20)
+    expect(result.highPass!.frequencyHz).toBeLessThan(120)
+    expect(result.lowPass!.frequencyHz).toBeGreaterThan(3_000)
+    expect(result.lowPass!.frequencyHz).toBeLessThan(16_000)
+    expect(result.bands.some((band) => band?.type === "low-shelf")).toBe(false)
+    expect(result.bands.some((band) => band?.type === "high-shelf")).toBe(false)
+    const mid = result.bands.find((band) => band?.enabled && band.frequencyHz > 200 && band.frequencyHz < 2_000)
+    expect(mid?.type).toBe("bell")
+    expect(mid!.gainDb).toBeLessThan(-8)
   })
 
   it("prefers a high shelf for an open-ended high cut instead of a bell", () => {

@@ -60,6 +60,11 @@ export interface Feature {
   openToHighEdge: boolean
 }
 
+export interface EndFilterHints {
+  highPass: boolean
+  lowPass: boolean
+}
+
 interface BandGene {
   enabled: boolean
   type: BandType
@@ -92,6 +97,7 @@ interface ScoreContext {
   frequencies: number[]
   reference: number[]
   features: Feature[]
+  endHints: EndFilterHints
 }
 
 /** Fit one Nova (4 bands + optional HP/LP) to a reference magnitude curve. */
@@ -112,11 +118,17 @@ export function magicMatch(
   // Fit free bands to residual after locked contribution.
   const lockedCurve = lockedResponse(lockedSlots, searchFreqs)
   const residual = searchRef.map((value, index) => value - (lockedCurve[index] ?? 0))
-  const features = detectFeatures(searchFreqs, residual)
-  const ctx: ScoreContext = { frequencies: searchFreqs, reference: searchRef, features: detectFeatures(searchFreqs, searchRef) }
+  const endHints = detectEndFilterHints(searchFreqs, searchRef)
+  const features = detectFeatures(searchFreqs, residual, endHints)
+  const ctx: ScoreContext = {
+    frequencies: searchFreqs,
+    reference: searchRef,
+    features: detectFeatures(searchFreqs, searchRef, endHints),
+    endHints,
+  }
   // Free-slot search still uses residual features; full reference for scoring.
   const freeFeatures = features
-  const layouts = enumerateLayouts(freeFeatures, searchFreqs, residual, lockedSlots)
+  const layouts = enumerateLayouts(freeFeatures, searchFreqs, residual, lockedSlots, endHints)
   if (layouts.length === 0) {
     return emptyResult(options.bands)
   }
@@ -163,14 +175,24 @@ export function magicMatch(
 }
 
 /** Ordered residual features for search / tests. */
-export function detectFeatures(frequencies: number[], reference: number[]): Feature[] {
+export function detectFeatures(
+  frequencies: number[],
+  reference: number[],
+  endHints: EndFilterHints = detectEndFilterHints(frequencies, reference),
+): Feature[] {
   const smoothed = smooth(reference, 2)
-  const extrema = findExtrema(frequencies, smoothed)
+  const extrema = findExtrema(frequencies, smoothed).filter((peak) => {
+    // HP/LP edges are handled by end filters, not parametric shelves/bells.
+    if (endHints.highPass && peak.frequencyHz < 100) return false
+    if (endHints.lowPass && peak.frequencyHz > 8_000) return false
+    return true
+  })
   const maxAbs = Math.max(...extrema.map((peak) => Math.abs(peak.gainDb)), 0.5)
   return extrema.map((peak) => {
     const span = sameSignSpan(frequencies, smoothed, peak.index, Math.sign(peak.gainDb) || 1)
-    const openToLowEdge = isOpenToEdge(frequencies, smoothed, peak, "low")
-    const openToHighEdge = isOpenToEdge(frequencies, smoothed, peak, "high")
+    // Continuing HP/LP roll-off is "open" but must not become a shelf.
+    const openToLowEdge = !endHints.highPass && isOpenToEdge(frequencies, smoothed, peak, "low")
+    const openToHighEdge = !endHints.lowPass && isOpenToEdge(frequencies, smoothed, peak, "high")
     const halfWidth = clamp(0.28 + span * 0.18, 0.28, FEATURE_HALF_WIDTH + 0.35)
     return {
       index: peak.index,
@@ -185,15 +207,25 @@ export function detectFeatures(frequencies: number[], reference: number[]): Feat
   })
 }
 
+/** True when the extreme keeps falling steeply (HP/LP), not leveling like a shelf. */
+export function detectEndFilterHints(frequencies: number[], reference: number[]): EndFilterHints {
+  const smoothed = smooth(reference, 2)
+  return {
+    highPass: looksLikeEndFilter(frequencies, smoothed, "hp"),
+    lowPass: looksLikeEndFilter(frequencies, smoothed, "lp"),
+  }
+}
+
 /** Residual extrema → preferred overshoot seed. Exported for tests. */
 export function seedFromResidual(
   frequencies: number[],
   reference: number[],
   lockedSlots: (BandGene | null)[] = emptyLockedSlots(),
 ): Genotype {
-  const features = detectFeatures(frequencies, reference)
-  const highPass = detectEndFilter(frequencies, smooth(reference, 2), "hp")
-  const lowPass = detectEndFilter(frequencies, smooth(reference, 2), "lp")
+  const endHints = detectEndFilterHints(frequencies, reference)
+  const features = detectFeatures(frequencies, reference, endHints)
+  const highPass = detectEndFilter(frequencies, smooth(reference, 2), "hp", endHints)
+  const lowPass = detectEndFilter(frequencies, smooth(reference, 2), "lp", endHints)
   const types: (BandType | null)[] = lockedSlots.map((slot) => (slot?.enabled ? slot.type : null))
   const free = freeSlotIndices(lockedSlots)
   features.slice(0, free.length).forEach((feature, index) => {
@@ -265,16 +297,23 @@ function enumerateLayouts(
   frequencies: number[],
   reference: number[],
   lockedSlots: (BandGene | null)[],
+  endHints: EndFilterHints,
 ): Layout[] {
   const smoothed = smooth(reference, 2)
   const hpOff: FilterGene = { enabled: false, logFreq: Math.log(30), slopeIndex: 1 }
   const lpOff: FilterGene = { enabled: false, logFreq: Math.log(16_000), slopeIndex: 1 }
-  const hpOn = detectEndFilter(frequencies, smoothed, "hp")
-  const lpOn = detectEndFilter(frequencies, smoothed, "lp")
-  const filterOptions: Array<{ highPass: FilterGene; lowPass: FilterGene }> = [{ highPass: hpOff, lowPass: lpOff }]
-  if (hpOn.enabled) filterOptions.push({ highPass: hpOn, lowPass: lpOff })
-  if (lpOn.enabled) filterOptions.push({ highPass: hpOff, lowPass: lpOn })
-  if (hpOn.enabled && lpOn.enabled) filterOptions.push({ highPass: hpOn, lowPass: lpOn })
+  const hpCandidates = endFilterCandidates(frequencies, smoothed, "hp", endHints)
+  const lpCandidates = endFilterCandidates(frequencies, smoothed, "lp", endHints)
+  const filterOptions: Array<{ highPass: FilterGene; lowPass: FilterGene }> = []
+  // When ends look like HP/LP, skip the no-filter option so shelves cannot win by default.
+  if (!endHints.highPass && !endHints.lowPass) filterOptions.push({ highPass: hpOff, lowPass: lpOff })
+  for (const highPass of hpCandidates.length ? hpCandidates : [hpOff]) {
+    for (const lowPass of lpCandidates.length ? lpCandidates : [lpOff]) {
+      if (!highPass.enabled && !lowPass.enabled && (endHints.highPass || endHints.lowPass)) continue
+      filterOptions.push({ highPass: { ...highPass }, lowPass: { ...lowPass } })
+    }
+  }
+  if (filterOptions.length === 0) filterOptions.push({ highPass: hpOff, lowPass: lpOff })
 
   const free = freeSlotIndices(lockedSlots)
   const layouts: Layout[] = []
@@ -317,11 +356,19 @@ function enumerateLayouts(
     }
   }
 
-  // Pure-bell baseline only when no edge feature strongly wants a shelf.
+  // Pure-bell baseline for mid features (and when ends are handled by HP/LP).
   const edgeShelf = features.slice(0, count).some((feature) => feature.openToHighEdge || feature.openToLowEdge)
-  if (!edgeShelf) {
-    const bells = features.slice(0, count).map(() => "bell" as BandType)
-    const ordered = slotFreeTypes(features.slice(0, count), bells, free.length)
+  if (!edgeShelf || endHints.highPass || endHints.lowPass) {
+    const midFeatures = features
+      .filter((feature) => {
+        if (endHints.highPass && feature.frequencyHz < 120) return false
+        if (endHints.lowPass && feature.frequencyHz > 6000) return false
+        return true
+      })
+      .slice(0, count)
+    const chosen = midFeatures.length > 0 ? midFeatures : features.slice(0, Math.min(1, count))
+    const bells = chosen.map(() => "bell" as BandType)
+    const ordered = slotFreeTypes(chosen, bells, free.length)
     for (const filters of filterOptions) pushLayout(ordered, filters)
   }
 
@@ -556,6 +603,7 @@ function scoreGenotype(gene: Genotype, ctx: ScoreContext): number {
     return total + (q < 0.45 ? 0.12 * (0.45 - q) : 0)
   }, 0)
   const shelfMismatch = edgeShelfPenalty(gene, ctx)
+  const filterMismatch = endFilterPenalty(gene, ctx)
 
   return (
     featureCost +
@@ -565,7 +613,8 @@ function scoreGenotype(gene: Genotype, ctx: ScoreContext): number {
     EDGE_WEIGHT * edgeMean +
     SPARSITY * (activeBands + activeFilters) +
     widePenalty +
-    shelfMismatch
+    shelfMismatch +
+    filterMismatch
   )
 }
 
@@ -603,14 +652,43 @@ function edgeShelfPenalty(gene: Genotype, ctx: ScoreContext): number {
   return penalty
 }
 
+/** Prefer HP/LP when the reference keeps rolling off; punish shelf plateaus there. */
+function endFilterPenalty(gene: Genotype, ctx: ScoreContext): number {
+  let penalty = 0
+  if (ctx.endHints.highPass) {
+    if (!gene.highPass.enabled) penalty += 1.4
+    if (gene.bands.some((band) => band.enabled && band.type === "low-shelf")) penalty += 1.1
+  }
+  if (ctx.endHints.lowPass) {
+    if (!gene.lowPass.enabled) penalty += 1.4
+    if (gene.bands.some((band) => band.enabled && band.type === "high-shelf")) penalty += 1.1
+  }
+  return penalty
+}
+
 function mutateContinuous(population: Genotype[], index: number, random: () => number): Genotype {
   const size = population.length
   let a = index
   let b = index
   let c = index
-  while (a === index) a = Math.floor(random() * size)
-  while (b === index || b === a) b = Math.floor(random() * size)
-  while (c === index || c === a || c === b) c = Math.floor(random() * size)
+  let guard = 0
+  while (a === index && guard < 16) {
+    a = Math.floor(random() * size)
+    guard += 1
+  }
+  if (a === index) a = (index + 1) % size
+  guard = 0
+  while ((b === index || b === a) && guard < 16) {
+    b = Math.floor(random() * size)
+    guard += 1
+  }
+  if (b === index || b === a) b = (a + 1) % size
+  guard = 0
+  while ((c === index || c === a || c === b) && guard < 16) {
+    c = Math.floor(random() * size)
+    guard += 1
+  }
+  if (c === index || c === a || c === b) c = (b + 1) % size
 
   const target = population[index]!
   const base = population[a]!
@@ -928,15 +1006,58 @@ function estimateQ(
   return clamp(q, MIN_Q, MAX_Q)
 }
 
-function detectEndFilter(frequencies: number[], values: number[], kind: "hp" | "lp"): FilterGene {
-  const defaultLog = Math.log(kind === "hp" ? 30 : 16_000)
-  const defaultGene: FilterGene = { enabled: false, logFreq: defaultLog, slopeIndex: 1 }
-  if (values.length < 8) return defaultGene
+function looksLikeEndFilter(frequencies: number[], values: number[], kind: "hp" | "lp"): boolean {
+  if (values.length < 12) return false
+  const slope = edgeSlopeDbPerOct(frequencies, values, kind)
+  const edge = kind === "hp" ? (values[0] ?? 0) : (values[values.length - 1] ?? 0)
+  // Shelf plateaus (shallow edge slope); HP/LP keeps falling (~6+ dB/oct near the extreme).
+  return edge < -6 && slope >= 4.5
+}
+
+function edgeSlopeDbPerOct(frequencies: number[], values: number[], kind: "hp" | "lp"): number {
+  if (kind === "hp") {
+    const f0 = frequencies[0] ?? 10
+    const target = f0 * 2.2
+    let i1 = 0
+    while (i1 < frequencies.length - 1 && (frequencies[i1] ?? 0) < target) i1 += 1
+    const f1 = frequencies[i1] ?? f0 * 2
+    const oct = Math.log2(Math.max(f1 / f0, 1.05))
+    return Math.abs(((values[i1] ?? 0) - (values[0] ?? 0)) / oct)
+  }
+  const last = values.length - 1
+  const f1 = frequencies[last] ?? 40_000
+  const target = f1 / 2.2
+  let i0 = last
+  while (i0 > 0 && (frequencies[i0] ?? 0) > target) i0 -= 1
+  const f0 = frequencies[i0] ?? f1 / 2
+  const oct = Math.log2(Math.max(f1 / f0, 1.05))
+  return Math.abs(((values[last] ?? 0) - (values[i0] ?? 0)) / oct)
+}
+
+function detectEndFilter(
+  frequencies: number[],
+  values: number[],
+  kind: "hp" | "lp",
+  endHints?: EndFilterHints,
+): FilterGene {
+  const candidates = endFilterCandidates(frequencies, values, kind, endHints)
+  return candidates[0] ?? { enabled: false, logFreq: Math.log(kind === "hp" ? 30 : 16_000), slopeIndex: 1 }
+}
+
+function endFilterCandidates(
+  frequencies: number[],
+  values: number[],
+  kind: "hp" | "lp",
+  endHints?: EndFilterHints,
+): FilterGene[] {
+  const forced = kind === "hp" ? endHints?.highPass : endHints?.lowPass
+  if (values.length < 8) return []
 
   if (kind === "hp") {
     const edge = values[0] ?? 0
     const mid = values[Math.floor(values.length * 0.15)] ?? 0
-    if (edge > -4 || mid > -1.5) return defaultGene
+    const rollOff = looksLikeEndFilter(frequencies, values, "hp")
+    if (!forced && !rollOff && (edge > -4 || mid > -1.5)) return []
     let cutIndex = 0
     for (let i = 0; i < values.length; i++) {
       if ((values[i] ?? 0) > -3) {
@@ -945,15 +1066,22 @@ function detectEndFilter(frequencies: number[], values: number[], kind: "hp" | "
       }
     }
     const freq = frequencies[cutIndex] ?? 30
-    if (freq > 800) return defaultGene
-    const drop = Math.abs(edge - mid)
-    const slopeIndex = drop > 18 ? 3 : drop > 10 ? 2 : 1
-    return { enabled: true, logFreq: Math.log(clamp(freq, 15, 2000)), slopeIndex }
+    if (freq > 1200 && !forced && !rollOff) return []
+    const slope = edgeSlopeDbPerOct(frequencies, values, "hp")
+    const primary = slope > 30 ? 3 : slope > 16 ? 2 : slope > 8 ? 1 : 0
+    const slopes = [primary, clampInt(primary + 1, 0, 3), clampInt(primary - 1, 0, 3)]
+    const unique = [...new Set(slopes)]
+    return unique.slice(0, 2).map((slopeIndex) => ({
+      enabled: true,
+      logFreq: Math.log(clamp(freq, 15, 2000)),
+      slopeIndex,
+    }))
   }
 
   const edge = values[values.length - 1] ?? 0
   const mid = values[Math.floor(values.length * 0.85)] ?? 0
-  if (edge > -4 || mid > -1.5) return defaultGene
+  const rollOff = looksLikeEndFilter(frequencies, values, "lp")
+  if (!forced && !rollOff && (edge > -4 || mid > -1.5)) return []
   let cutIndex = values.length - 1
   for (let i = values.length - 1; i >= 0; i--) {
     if ((values[i] ?? 0) > -3) {
@@ -962,10 +1090,20 @@ function detectEndFilter(frequencies: number[], values: number[], kind: "hp" | "
     }
   }
   const freq = frequencies[cutIndex] ?? 16_000
-  if (freq < 2000) return defaultGene
-  const drop = Math.abs(edge - mid)
-  const slopeIndex = drop > 18 ? 3 : drop > 10 ? 2 : 1
-  return { enabled: true, logFreq: Math.log(clamp(freq, 1000, MAX_FREQ)), slopeIndex }
+  if (freq < 1500 && !forced && !rollOff) return []
+  const slope = edgeSlopeDbPerOct(frequencies, values, "lp")
+  const primary = slope > 30 ? 3 : slope > 16 ? 2 : slope > 8 ? 1 : 0
+  const slopes = [primary, clampInt(primary + 1, 0, 3), clampInt(primary - 1, 0, 3)]
+  const unique = [...new Set(slopes)]
+  return unique.slice(0, 2).map((slopeIndex) => ({
+    enabled: true,
+    logFreq: Math.log(clamp(freq, 1000, MAX_FREQ)),
+    slopeIndex,
+  }))
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)))
 }
 
 function jitter(seed: Genotype, amount: number, random: () => number): Genotype {
