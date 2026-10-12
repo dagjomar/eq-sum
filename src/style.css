@@ -255,7 +255,21 @@ canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
   margin-bottom: 0.65rem;
 }
 
-.panel-head .text { margin-left: auto; }
+.panel-head > .text,
+.panel-head .panel-actions {
+  margin-left: auto;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.fit-status {
+  margin: -0.25rem 0 0.55rem;
+  color: #c4b089;
+}
 
 textarea {
   width: 100%;

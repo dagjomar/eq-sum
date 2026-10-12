@@ -1,6 +1,7 @@
 import { EXAMPLE_PASTE } from "./example"
 import { drawGraph, handleAtPoint, indexFromX, labelColor, xToFrequency, yToDb, type DrawnCurve, type GraphHandle } from "./graph"
 import { createKnob, type KnobController } from "./knob"
+import { magicMatch } from "./magicMatch"
 import {
   FILTER_SLOPES,
   emptyBands,
@@ -147,8 +148,12 @@ app.innerHTML = `
       <section class="panel">
         <div class="panel-head">
           <h2 id="editor-title">Nodes</h2>
-          <button id="copy-state" class="text" type="button">Copy state</button>
+          <div class="panel-actions">
+            <button id="magic-match" class="text" type="button">Magic Match</button>
+            <button id="copy-state" class="text" type="button">Copy state</button>
+          </div>
         </div>
+        <p id="fit-status" class="meta fit-status" hidden></p>
         <div id="editor"></div>
       </section>
     </div>
@@ -176,7 +181,10 @@ const matchRows = required<HTMLElement>("#match-rows")
 const editor = required<HTMLElement>("#editor")
 const editorTitle = required<HTMLElement>("#editor-title")
 const addNovaButton = required<HTMLButtonElement>("#add-nova")
+const magicMatchButton = required<HTMLButtonElement>("#magic-match")
 const copyStateButton = required<HTMLButtonElement>("#copy-state")
+const fitStatus = required<HTMLElement>("#fit-status")
+let fitStatusTimer = 0
 
 required<HTMLButtonElement>("#add").addEventListener("click", () => addPaste(paste.value))
 required<HTMLButtonElement>("#example").addEventListener("click", () => addPaste(EXAMPLE_PASTE))
@@ -198,6 +206,7 @@ addNovaButton.addEventListener("click", () => {
   persist()
   render()
 })
+magicMatchButton.addEventListener("click", () => runMagicMatch())
 copyStateButton.addEventListener("click", () => {
   const selected = selectedMatch()
   if (!selected) return
@@ -498,6 +507,8 @@ function renderMatch(): void {
     selectedMatchId = matches[0]?.id ?? null
   }
   addNovaButton.disabled = !canAddNova()
+  magicMatchButton.disabled = instances.length === 0 || magicMatchButton.dataset.busy === "1"
+  copyStateButton.disabled = !selectedMatch()
   matchRows.replaceChildren()
   for (const [index, instance] of matches.entries()) {
     const item = document.createElement("li")
@@ -535,7 +546,6 @@ function renderMatch(): void {
 
 function renderEditor(): void {
   const selected = selectedMatch()
-  copyStateButton.disabled = !selected
   editorTitle.textContent = selected?.name ?? "Nodes"
   liveKnobs = {}
   liveFilter = null
@@ -976,6 +986,50 @@ function nodeGain(instance: MatchInstance, frequencyHz: number): number {
   const gain = responseDb(toPreset(instance), [frequencyHz])[0] ?? 0
   const limit = Math.max(1, rangeDb - 1)
   return Math.min(limit, Math.max(-limit, gain))
+}
+
+function runMagicMatch(): void {
+  if (instances.length === 0 || magicMatchButton.dataset.busy === "1") return
+  magicMatchButton.dataset.busy = "1"
+  magicMatchButton.disabled = true
+  magicMatchButton.textContent = "Matching…"
+
+  // Yield so the button label paints before the sync search runs.
+  window.setTimeout(() => {
+    try {
+      let target = selectedMatch()
+      if (!target) {
+        if (!canAddNova()) return
+        target = createMatch()
+        matches.push(target)
+        selectedMatchId = target.id
+      }
+      const result = magicMatch(chainReference(), FREQUENCIES)
+      target.bands = result.bands
+      target.highPass = result.highPass
+      target.lowPass = result.lowPass
+      selectedBandId = result.bands.find((band) => band?.enabled)?.id ?? null
+      selectedCut = result.highPass?.enabled ? "hp" : result.lowPass?.enabled ? "lp" : null
+      if (selectedBandId) selectedCut = null
+      showFitStatus(`Fit · mean ${result.error.mean.toFixed(2)} dB · max ${result.error.max.toFixed(2)} dB`)
+      persist()
+      render()
+    } finally {
+      magicMatchButton.dataset.busy = "0"
+      magicMatchButton.textContent = "Magic Match"
+      magicMatchButton.disabled = instances.length === 0
+    }
+  }, 0)
+}
+
+function showFitStatus(message: string): void {
+  fitStatus.hidden = false
+  fitStatus.textContent = message
+  window.clearTimeout(fitStatusTimer)
+  fitStatusTimer = window.setTimeout(() => {
+    fitStatus.hidden = true
+    fitStatus.textContent = ""
+  }, 4000)
 }
 
 function showMode(next: "chain" | "match"): void {
