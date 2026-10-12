@@ -46,6 +46,12 @@ Dynamics, dry mix, bypass, delta, auto-gain, and output gain are called out when
 
 Inside one Nova, bells and shelves are parallel. Spaced cuts or boosts follow the stronger band, and the skirts meet in a round join. A tight pair sinks a little below the nodes. Across separate plugins, dB addition is the model once each curve is right.
 
+## Plans
+
+Future product direction (for contributors and agents working on the app or landing page):
+
+- [Multiple EQ targets](docs/plans/multi-eq-targets.md) — separate routes/UIs per plugin family (Nova first; Logic Channel EQ later), not an in-app plugin toggle
+
 ## Develop
 
 ```bash
