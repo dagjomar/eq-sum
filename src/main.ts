@@ -949,6 +949,9 @@ function cutFromHandle(handle: GraphHandle | null): "hp" | "lp" | null {
 }
 
 function selectHandle(handle: GraphHandle): void {
+  const previousMatchId = selectedMatchId
+  const previousBandId = selectedBandId
+  const previousCut = selectedCut
   selectedMatchId = handle.instanceId
   if (handle.marker === "band") {
     selectedBandId = handle.id
@@ -956,10 +959,17 @@ function selectHandle(handle: GraphHandle): void {
   } else {
     selectedCut = handle.id.endsWith(":hp") ? "hp" : "lp"
   }
-  const matchId = selectedMatch()?.id
-  const showingBand = selectedCut === null && Boolean(liveKnobs.q) && selectedBand()?.id === selectedBandId && matchId === handle.instanceId
-  const showingCut = selectedCut !== null && liveFilter === selectedCut && Boolean(liveKnobs.slope) && matchId === handle.instanceId
-  if (!showingBand && !showingCut) render()
+  // Compare against the prior selection — liveKnobs still belong to the old deck
+  // until render() rebuilds them.
+  const sameBand =
+    handle.marker === "band" &&
+    previousCut === null &&
+    previousBandId === handle.id &&
+    previousMatchId === handle.instanceId
+  const sameCut =
+    handle.marker === "cut" && previousCut === selectedCut && previousMatchId === handle.instanceId
+  if (sameBand || sameCut) draw()
+  else render()
 }
 
 function buildHandles(): GraphHandle[] {
