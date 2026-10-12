@@ -246,6 +246,32 @@ describe("magicMatch", () => {
     expect(shelf?.frequencyHz).toBeGreaterThan(2500)
   })
 
+  it("keeps locked HP and LP on with fixed slope across Magic Match", () => {
+    const reference = responseDb(
+      preset({
+        bands: [{ index: 1, type: "bell", frequencyHz: 800, gainDb: -8, q: 1, dynamics: false }],
+        highPass: { frequencyHz: 40, slopeDbPerOct: 12 },
+        lowPass: { frequencyHz: 12_000, slopeDbPerOct: 24 },
+      }),
+      FREQUENCIES,
+    )
+    const result = magicMatch(reference, FREQUENCIES, {
+      random: mulberry32(17),
+      highPass: { frequencyHz: 55, slopeDbPerOct: 12, enabled: true, locked: true },
+      lowPass: { frequencyHz: 10_000, slopeDbPerOct: 24, enabled: true, locked: true },
+    })
+    expect(result.highPass?.enabled).toBe(true)
+    expect(result.highPass?.locked).toBe(true)
+    expect(result.highPass?.slopeDbPerOct).toBe(12)
+    expect(result.highPass!.frequencyHz).toBeGreaterThan(35)
+    expect(result.highPass!.frequencyHz).toBeLessThan(90)
+    expect(result.lowPass?.enabled).toBe(true)
+    expect(result.lowPass?.locked).toBe(true)
+    expect(result.lowPass?.slopeDbPerOct).toBe(24)
+    expect(result.lowPass!.frequencyHz).toBeGreaterThan(7_000)
+    expect(result.lowPass!.frequencyHz).toBeLessThan(14_000)
+  })
+
   it("keeps locked bands on, typed, and near their settings across Magic Match", () => {
     const reference = responseDb(
       preset({

@@ -37,6 +37,8 @@ export interface MatchFilter {
   frequencyHz: number
   slopeDbPerOct: number
   enabled: boolean
+  /** When true, Magic Match keeps this filter on and only lightly nudges frequency. */
+  locked?: boolean
 }
 
 export interface MatchInstance {
@@ -66,7 +68,7 @@ export function normalizeMatch(instance: MatchInstance): MatchInstance {
 
 function normalizeFilter(filter: MatchFilter | null): MatchFilter | null {
   if (!filter || !Number.isFinite(filter.frequencyHz) || !Number.isFinite(filter.slopeDbPerOct)) return null
-  return { ...filter, enabled: filter.enabled !== false }
+  return { ...filter, enabled: filter.enabled !== false, locked: filter.locked === true }
 }
 
 export function nodeCount(instances: MatchInstance[]): number {

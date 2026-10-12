@@ -680,12 +680,15 @@ function cutSlot(instance: MatchInstance, kind: "hp" | "lp"): HTMLButtonElement 
   const filter = kind === "hp" ? instance.highPass : instance.lowPass
   const on = Boolean(filter?.enabled)
   const current = selectedCut === kind
+  const locked = Boolean(filter?.locked)
   const button = document.createElement("button")
   button.type = "button"
-  button.className = `pick pick-cut${on ? " is-on" : " is-off"}${current ? " is-current" : ""}`
+  button.className = `pick pick-cut${on ? " is-on" : " is-off"}${current ? " is-current" : ""}${locked ? " is-locked" : ""}`
   button.dataset.action = "select-cut"
   button.dataset.filter = kind
-  button.textContent = kind === "hp" ? "HP" : "LP"
+  const label = kind === "hp" ? "HP" : "LP"
+  button.textContent = locked ? `${label}*` : label
+  button.title = locked ? `${label} locked for Magic Match` : label
   if (on) paintOn(button, instance.color)
   button.setAttribute("aria-pressed", String(on))
   button.setAttribute("aria-label", slotLabel(kind === "hp" ? "High-pass" : "Low-pass", on, current))
@@ -740,7 +743,17 @@ function appendFilterDeck(instance: MatchInstance, kind: "hp" | "lp"): void {
   })
   liveKnobs = { freq, slope }
   liveFilter = kind
-  deck.append(freq.element, slope.element)
+  const lock = document.createElement("button")
+  lock.type = "button"
+  lock.className = "text lock-toggle"
+  lock.dataset.action = "toggle-filter-lock"
+  lock.dataset.filter = kind
+  lock.setAttribute("aria-pressed", String(Boolean(filter.locked)))
+  lock.textContent = filter.locked ? "Locked" : "Lock"
+  lock.title = filter.locked
+    ? "Unlock so Magic Match can replace this filter"
+    : "Lock this filter: Magic Match keeps it on with this slope and only nudges frequency"
+  deck.append(freq.element, slope.element, lock)
   editor.append(deck)
 }
 
@@ -788,6 +801,16 @@ function onEditorClick(event: Event): void {
     const band = selected.bands.find((item) => item?.id === selectedBandId)
     if (band?.enabled) {
       band.locked = !band.locked
+      persist()
+      render()
+    }
+    return
+  }
+  if (action === "toggle-filter-lock") {
+    const kind = button.dataset.filter === "lp" ? "lp" : "hp"
+    const filter = kind === "hp" ? selected.highPass : selected.lowPass
+    if (filter?.enabled) {
+      filter.locked = !filter.locked
       persist()
       render()
     }
@@ -1027,16 +1050,30 @@ function runMagicMatch(): void {
         matches.push(target)
         selectedMatchId = target.id
       }
-      const result = magicMatch(chainReference(), FREQUENCIES, { bands: target.bands })
+      const result = magicMatch(chainReference(), FREQUENCIES, {
+        bands: target.bands,
+        highPass: target.highPass,
+        lowPass: target.lowPass,
+      })
       target.bands = result.bands
       target.highPass = result.highPass
       target.lowPass = result.lowPass
       selectedBandId = result.bands.find((band) => band?.locked && band.enabled)?.id
         ?? result.bands.find((band) => band?.enabled)?.id
         ?? null
-      selectedCut = result.highPass?.enabled ? "hp" : result.lowPass?.enabled ? "lp" : null
-      if (selectedBandId) selectedCut = null
-      const lockedCount = result.bands.filter((band) => band?.locked && band.enabled).length
+      selectedCut = result.highPass?.locked
+        ? "hp"
+        : result.lowPass?.locked
+          ? "lp"
+          : result.highPass?.enabled
+            ? "hp"
+            : result.lowPass?.enabled
+              ? "lp"
+              : null
+      if (selectedBandId && !result.highPass?.locked && !result.lowPass?.locked) selectedCut = null
+      const lockedBands = result.bands.filter((band) => band?.locked && band.enabled).length
+      const lockedCuts = (result.highPass?.locked ? 1 : 0) + (result.lowPass?.locked ? 1 : 0)
+      const lockedCount = lockedBands + lockedCuts
       const lockNote = lockedCount > 0 ? ` · ${lockedCount} locked` : ""
       showFitStatus(`Fit · mean ${result.error.mean.toFixed(2)} dB · max ${result.error.max.toFixed(2)} dB${lockNote}`)
       persist()
@@ -1098,10 +1135,16 @@ function selectCutSlot(instance: MatchInstance, kind: "hp" | "lp"): void {
   const key = kind === "hp" ? "highPass" : "lowPass"
   const current = instance[key]
   if (selectedCut === kind && current) {
+    if (current.locked) return
     current.enabled = !current.enabled
     return
   }
-  instance[key] = current ?? { frequencyHz: kind === "hp" ? 30 : 16_000, slopeDbPerOct: 12, enabled: true }
+  instance[key] = current ?? {
+    frequencyHz: kind === "hp" ? 30 : 16_000,
+    slopeDbPerOct: 12,
+    enabled: true,
+    locked: false,
+  }
   instance[key].enabled = true
   selectedCut = kind
 }

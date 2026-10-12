@@ -50,6 +50,9 @@ export interface MagicMatchOptions {
    * params may nudge slightly. Free slots are re-fit against the residual.
    */
   bands?: (MatchBand | null)[]
+  /** Locked HP/LP stay on with fixed slope; frequency may nudge slightly. */
+  highPass?: MatchFilter | null
+  lowPass?: MatchFilter | null
 }
 
 export interface Feature {
@@ -82,6 +85,7 @@ interface FilterGene {
   enabled: boolean
   logFreq: number
   slopeIndex: number
+  locked: boolean
 }
 
 interface Genotype {
@@ -110,16 +114,18 @@ export function magicMatch(
   options: MagicMatchOptions = {},
 ): MagicMatchResult {
   if (referenceDb.length === 0 || referenceDb.length !== frequencies.length) {
-    return emptyResult(options.bands)
+    return emptyResult(options)
   }
 
   const random = options.random ?? Math.random
   const lockedSlots = readLockedSlots(options.bands)
+  const lockedHighPass = readLockedFilter(options.highPass, "hp")
+  const lockedLowPass = readLockedFilter(options.lowPass, "lp")
   const searchFreqs = logFrequencies(SEARCH_POINTS, SEARCH_START_HZ, SEARCH_END_HZ)
   const searchRef = sampleCurve(frequencies, referenceDb, searchFreqs)
 
   // Fit free bands to residual after locked contribution.
-  const lockedCurve = lockedResponse(lockedSlots, searchFreqs)
+  const lockedCurve = lockedResponse(lockedSlots, lockedHighPass, lockedLowPass, searchFreqs)
   const residual = searchRef.map((value, index) => value - (lockedCurve[index] ?? 0))
   const endHints = detectEndFilterHints(searchFreqs, searchRef)
   const features = detectFeatures(searchFreqs, residual, endHints)
@@ -131,9 +137,17 @@ export function magicMatch(
   }
   // Free-slot search still uses residual features; full reference for scoring.
   const freeFeatures = features
-  const layouts = enumerateLayouts(freeFeatures, searchFreqs, residual, lockedSlots, endHints)
+  const layouts = enumerateLayouts(
+    freeFeatures,
+    searchFreqs,
+    residual,
+    lockedSlots,
+    endHints,
+    lockedHighPass,
+    lockedLowPass,
+  )
   if (layouts.length === 0) {
-    return emptyResult(options.bands)
+    return emptyResult(options)
   }
 
   let best: Genotype | null = null
@@ -168,7 +182,9 @@ export function magicMatch(
     }
   }
 
-  const polished = polish(best ?? seedFromResidual(searchFreqs, residual, lockedSlots))
+  const polished = polish(
+    best ?? seedFromResidual(searchFreqs, residual, lockedSlots, lockedHighPass, lockedLowPass),
+  )
   const bands = genesToBands(polished.bands)
   const highPass = geneToFilter(polished.highPass)
   const lowPass = geneToFilter(polished.lowPass)
@@ -267,11 +283,15 @@ export function seedFromResidual(
   frequencies: number[],
   reference: number[],
   lockedSlots: (BandGene | null)[] = emptyLockedSlots(),
+  lockedHighPass: FilterGene | null = null,
+  lockedLowPass: FilterGene | null = null,
 ): Genotype {
   const endHints = detectEndFilterHints(frequencies, reference)
   const features = detectFeatures(frequencies, reference, endHints)
-  const highPass = detectEndFilter(frequencies, smooth(reference, 2), "hp", endHints)
-  const lowPass = detectEndFilter(frequencies, smooth(reference, 2), "lp", endHints)
+  const highPass =
+    lockedHighPass ?? detectEndFilter(frequencies, smooth(reference, 2), "hp", endHints)
+  const lowPass =
+    lockedLowPass ?? detectEndFilter(frequencies, smooth(reference, 2), "lp", endHints)
   const types: (BandType | null)[] = lockedSlots.map((slot) => (slot?.enabled ? slot.type : null))
   const free = freeSlotIndices(lockedSlots)
   features.slice(0, free.length).forEach((feature, index) => {
@@ -282,12 +302,33 @@ export function seedFromResidual(
   return seedLayout({ types, highPass, lowPass }, features, frequencies, reference, lockedSlots)
 }
 
-function emptyResult(bands?: (MatchBand | null)[]): MagicMatchResult {
+function emptyResult(options: MagicMatchOptions = {}): MagicMatchResult {
   return {
-    bands: bands ? bands.map((band) => (band ? { ...band } : null)) : [null, null, null, null],
-    highPass: null,
-    lowPass: null,
+    bands: options.bands ? options.bands.map((band) => (band ? { ...band } : null)) : [null, null, null, null],
+    highPass: options.highPass?.locked && options.highPass.enabled ? { ...options.highPass } : null,
+    lowPass: options.lowPass?.locked && options.lowPass.enabled ? { ...options.lowPass } : null,
     error: { mean: 0, max: 0 },
+  }
+}
+
+function offFilter(kind: "hp" | "lp"): FilterGene {
+  return {
+    enabled: false,
+    logFreq: Math.log(kind === "hp" ? 30 : 16_000),
+    slopeIndex: 1,
+    locked: false,
+  }
+}
+
+function readLockedFilter(filter: MatchFilter | null | undefined, _kind: "hp" | "lp"): FilterGene | null {
+  if (!filter?.locked || !filter.enabled) return null
+  let slopeIndex = FILTER_SLOPES.indexOf(filter.slopeDbPerOct)
+  if (slopeIndex < 0) slopeIndex = 1
+  return {
+    enabled: true,
+    logFreq: Math.log(clamp(filter.frequencyHz, MIN_FREQ, MAX_FREQ)),
+    slopeIndex,
+    locked: true,
   }
 }
 
@@ -313,7 +354,12 @@ function readLockedSlots(bands: (MatchBand | null)[] | undefined): (BandGene | n
   return slots
 }
 
-function lockedResponse(lockedSlots: (BandGene | null)[], frequencies: number[]): number[] {
+function lockedResponse(
+  lockedSlots: (BandGene | null)[],
+  lockedHighPass: FilterGene | null,
+  lockedLowPass: FilterGene | null,
+  frequencies: number[],
+): number[] {
   const bands = lockedSlots.map((slot) => {
     if (!slot?.enabled) return null
     return {
@@ -326,8 +372,10 @@ function lockedResponse(lockedSlots: (BandGene | null)[], frequencies: number[])
       locked: true,
     } satisfies MatchBand
   })
-  if (!bands.some((band) => band)) return frequencies.map(() => 0)
-  return responseDb(dummyPreset(bands, null, null), frequencies)
+  const highPass = geneToFilter(lockedHighPass ?? offFilter("hp"))
+  const lowPass = geneToFilter(lockedLowPass ?? offFilter("lp"))
+  if (!bands.some((band) => band) && !highPass && !lowPass) return frequencies.map(() => 0)
+  return responseDb(dummyPreset(bands, highPass, lowPass), frequencies)
 }
 
 function freeSlotIndices(lockedSlots: (BandGene | null)[]): number[] {
@@ -344,19 +392,29 @@ function enumerateLayouts(
   reference: number[],
   lockedSlots: (BandGene | null)[],
   endHints: EndFilterHints,
+  lockedHighPass: FilterGene | null,
+  lockedLowPass: FilterGene | null,
 ): Layout[] {
   const smoothed = smooth(reference, 2)
-  const hpOff: FilterGene = { enabled: false, logFreq: Math.log(30), slopeIndex: 1 }
-  const lpOff: FilterGene = { enabled: false, logFreq: Math.log(16_000), slopeIndex: 1 }
-  const hpCandidates = endFilterCandidates(frequencies, smoothed, "hp", endHints)
-  const lpCandidates = endFilterCandidates(frequencies, smoothed, "lp", endHints)
+  const hpOff = offFilter("hp")
+  const lpOff = offFilter("lp")
+  const hpCandidates = lockedHighPass
+    ? [lockedHighPass]
+    : endFilterCandidates(frequencies, smoothed, "hp", endHints)
+  const lpCandidates = lockedLowPass
+    ? [lockedLowPass]
+    : endFilterCandidates(frequencies, smoothed, "lp", endHints)
   const filterOptions: Array<{ highPass: FilterGene; lowPass: FilterGene }> = []
   // When ends look like HP/LP, skip the no-filter option so shelves cannot win by default.
-  if (!endHints.highPass && !endHints.lowPass) filterOptions.push({ highPass: hpOff, lowPass: lpOff })
+  const forceFilters = endHints.highPass || endHints.lowPass || Boolean(lockedHighPass) || Boolean(lockedLowPass)
+  if (!forceFilters) filterOptions.push({ highPass: hpOff, lowPass: lpOff })
   for (const highPass of hpCandidates.length ? hpCandidates : [hpOff]) {
     for (const lowPass of lpCandidates.length ? lpCandidates : [lpOff]) {
-      if (!highPass.enabled && !lowPass.enabled && (endHints.highPass || endHints.lowPass)) continue
-      filterOptions.push({ highPass: { ...highPass }, lowPass: { ...lowPass } })
+      if (!highPass.enabled && !lowPass.enabled && forceFilters) continue
+      filterOptions.push({
+        highPass: { ...highPass, locked: Boolean(lockedHighPass) },
+        lowPass: { ...lowPass, locked: Boolean(lockedLowPass) },
+      })
     }
   }
   if (filterOptions.length === 0) filterOptions.push({ highPass: hpOff, lowPass: lpOff })
@@ -790,8 +848,15 @@ function mutateFilterContinuous(
 ): void {
   const minLog = Math.log(kind === "hp" ? 15 : 1000)
   const maxLog = Math.log(kind === "hp" ? 2000 : MAX_FREQ)
+  const scale = current.locked ? LOCKED_F : F
+  const seedLog = current.logFreq
+  const seedSlope = current.slopeIndex
   if (random() < CR) {
-    current.logFreq = clamp(base.logFreq + F * (left.logFreq - right.logFreq), minLog, maxLog)
+    current.logFreq = clamp(base.logFreq + scale * (left.logFreq - right.logFreq), minLog, maxLog)
+  }
+  if (current.locked) {
+    current.logFreq = clamp(current.logFreq, seedLog - 0.2, seedLog + 0.2)
+    current.slopeIndex = seedSlope
   }
   current.enabled = true
 }
@@ -828,11 +893,15 @@ function coordinatePolish(gene: Genotype, ctx: ScoreContext): Genotype {
 
     for (const key of ["highPass", "lowPass"] as const) {
       if (!current[key].enabled) continue
+      const step = current[key].locked ? 0.04 : 0.1
       for (const dir of [-1, 1] as const) {
         const trial = cloneGene(current)
         const minLog = Math.log(key === "highPass" ? 15 : 1000)
         const maxLog = Math.log(key === "highPass" ? 2000 : MAX_FREQ)
-        trial[key].logFreq = clamp(trial[key].logFreq + dir * 0.1, minLog, maxLog)
+        trial[key].logFreq = clamp(trial[key].logFreq + dir * step, minLog, maxLog)
+        trial[key].slopeIndex = current[key].slopeIndex
+        trial[key].locked = current[key].locked
+        trial[key].enabled = true
         const score = scoreGenotype(trial, ctx)
         if (score < bestScore) {
           bestScore = score
@@ -896,6 +965,7 @@ function geneToFilter(gene: FilterGene): MatchFilter | null {
     frequencyHz: Math.exp(gene.logFreq),
     slopeDbPerOct: FILTER_SLOPES[gene.slopeIndex] ?? 12,
     enabled: true,
+    locked: gene.locked,
   }
 }
 
@@ -1091,7 +1161,7 @@ function detectEndFilter(
   endHints?: EndFilterHints,
 ): FilterGene {
   const candidates = endFilterCandidates(frequencies, values, kind, endHints)
-  return candidates[0] ?? { enabled: false, logFreq: Math.log(kind === "hp" ? 30 : 16_000), slopeIndex: 1 }
+  return candidates[0] ?? offFilter(kind)
 }
 
 function endFilterCandidates(
@@ -1125,6 +1195,7 @@ function endFilterCandidates(
       enabled: true,
       logFreq: Math.log(clamp(freq, 15, 2000)),
       slopeIndex,
+      locked: false,
     }))
   }
 
@@ -1149,6 +1220,7 @@ function endFilterCandidates(
     enabled: true,
     logFreq: Math.log(clamp(freq, 1000, MAX_FREQ)),
     slopeIndex,
+    locked: false,
   }))
 }
 
@@ -1172,10 +1244,12 @@ function jitter(seed: Genotype, amount: number, random: () => number): Genotype 
     }
   }
   if (next.highPass.enabled) {
-    next.highPass.logFreq = clamp(next.highPass.logFreq + gaussian(random) * amount * 0.4, Math.log(15), Math.log(2000))
+    const scale = next.highPass.locked ? LOCKED_JITTER : amount
+    next.highPass.logFreq = clamp(next.highPass.logFreq + gaussian(random) * scale * 0.4, Math.log(15), Math.log(2000))
   }
   if (next.lowPass.enabled) {
-    next.lowPass.logFreq = clamp(next.lowPass.logFreq + gaussian(random) * amount * 0.4, Math.log(1000), Math.log(MAX_FREQ))
+    const scale = next.lowPass.locked ? LOCKED_JITTER : amount
+    next.lowPass.logFreq = clamp(next.lowPass.logFreq + gaussian(random) * scale * 0.4, Math.log(1000), Math.log(MAX_FREQ))
   }
   return next
 }
