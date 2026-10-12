@@ -12,7 +12,7 @@ const MAX_Q = 10
 const GAIN_DISABLE = 0.15
 const SEARCH_POINTS = 144
 /** Include ultrasonic edge so shelf vs bell at HF is visible to the scorer. */
-const SEARCH_START_HZ = 20
+const SEARCH_START_HZ = 10
 const SEARCH_END_HZ = 40_000
 const COVERAGE_DB = 0.75
 const FEATURE_HALF_WIDTH = 0.55
@@ -343,12 +343,13 @@ function typeVariants(features: Feature[]): BandType[][] {
       }
       return
     }
-    if (feature.frequencyHz < 180 || feature.openToLowEdge) {
+    // Only offer shelves for truly open edges — closed bass/treble dips stay bells.
+    if (feature.openToLowEdge) {
       const alt = bases.slice() as BandType[]
       alt[index] = "low-shelf"
       variants.push(alt)
     }
-    if (feature.frequencyHz > 4500 || feature.openToHighEdge) {
+    if (feature.openToHighEdge || feature.frequencyHz > 4500) {
       const alt = bases.slice() as BandType[]
       alt[index] = "high-shelf"
       variants.push(alt)
@@ -568,12 +569,13 @@ function scoreGenotype(gene: Genotype, ctx: ScoreContext): number {
   )
 }
 
-/** Penalize bells that try to fake an open-ended shelf at the extremes. */
+/**
+ * Prefer shelves only for open edges; punish shelves that flatten a closed
+ * dip/peak that returns toward 0 at the extreme (typical sub-bass bell).
+ */
 function edgeShelfPenalty(gene: Genotype, ctx: ScoreContext): number {
   let penalty = 0
   for (const feature of ctx.features) {
-    if (!feature.openToHighEdge && !feature.openToLowEdge) continue
-    const wanted = feature.openToHighEdge ? "high-shelf" : "low-shelf"
     const nearest = gene.bands
       .filter((band) => band.enabled)
       .map((band) => ({
@@ -581,11 +583,22 @@ function edgeShelfPenalty(gene: Genotype, ctx: ScoreContext): number {
         distance: Math.abs(Math.log(Math.exp(band.logFreq) / feature.frequencyHz)),
       }))
       .sort((a, b) => a.distance - b.distance)[0]
-    if (!nearest || nearest.distance > 0.9) {
-      penalty += 0.35 * feature.weight
+
+    if (feature.openToHighEdge || feature.openToLowEdge) {
+      const wanted = feature.openToHighEdge ? "high-shelf" : "low-shelf"
+      if (!nearest || nearest.distance > 0.9) {
+        penalty += 0.35 * feature.weight
+        continue
+      }
+      if (nearest.band.type !== wanted) penalty += 0.55 * feature.weight
       continue
     }
-    if (nearest.band.type !== wanted) penalty += 0.55 * feature.weight
+
+    // Closed feature near an end: a shelf flattens past the extremum.
+    if (!nearest || nearest.distance > 0.9) continue
+    const closedLow = feature.frequencyHz < 200 && nearest.band.type === "low-shelf"
+    const closedHigh = feature.frequencyHz > 5000 && nearest.band.type === "high-shelf"
+    if (closedLow || closedHigh) penalty += 0.7 * feature.weight
   }
   return penalty
 }
@@ -828,31 +841,40 @@ function isOpenToEdge(
   const sign = Math.sign(peak.gainDb) || 1
   const endIndex = side === "high" ? values.length - 1 : 0
   const end = values[endIndex] ?? 0
-  if (Math.abs(end) < 1.0) return false
+  const peakAbs = Math.abs(peak.gainDb)
+  if (peakAbs < 0.8) return false
+  if (Math.abs(end) < 1.25) return false
   if (Math.sign(end) !== sign) return false
+  // Recovering toward 0 at the extreme ⇒ closed bell, not an open shelf.
+  if (Math.abs(end) < peakAbs * 0.55) return false
 
   if (side === "high") {
     if (peak.frequencyHz < 3500) return false
     let same = 0
     let total = 0
+    let closestToZero = peakAbs
     for (let i = peak.index; i < values.length; i++) {
       total += 1
       const value = values[i] ?? 0
+      closestToZero = Math.min(closestToZero, Math.abs(value))
       if (Math.sign(value) === sign || Math.abs(value) < 0.45) same += 1
     }
-    // Still significant at the far end relative to the feature.
-    return total > 0 && same / total > 0.72 && Math.abs(end) > Math.abs(peak.gainDb) * 0.28
+    if (closestToZero < peakAbs * 0.4) return false
+    return total > 0 && same / total > 0.72
   }
 
   if (peak.frequencyHz > 500) return false
   let same = 0
   let total = 0
+  let closestToZero = peakAbs
   for (let i = peak.index; i >= 0; i--) {
     total += 1
     const value = values[i] ?? 0
+    closestToZero = Math.min(closestToZero, Math.abs(value))
     if (Math.sign(value) === sign || Math.abs(value) < 0.45) same += 1
   }
-  return total > 0 && same / total > 0.72 && Math.abs(end) > Math.abs(peak.gainDb) * 0.28
+  if (closestToZero < peakAbs * 0.4) return false
+  return total > 0 && same / total > 0.72
 }
 
 function pickType(
@@ -862,18 +884,15 @@ function pickType(
   openToLowEdge: boolean,
   openToHighEdge: boolean,
 ): BandType {
+  // Shelves only when the residual stays open to that edge. A sub dip that
+  // returns toward 0 at 10 Hz is a bell — a low shelf would flatten the floor.
   if (openToHighEdge) return "high-shelf"
   if (openToLowEdge) return "low-shelf"
 
   const freq = peak.frequencyHz
   const sign = Math.sign(peak.gainDb) || 1
-  if (freq < 160) {
-    const wide = sameSignSpan(frequencies, values, peak.index, sign) > 1.15
-    if (wide) return "low-shelf"
-  }
   if (freq > 5500) {
     const wide = sameSignSpan(frequencies, values, peak.index, sign) > 1.15
-    // Far-right residual that stays away from 0 favors shelf even without full open-edge.
     const end = values[values.length - 1] ?? 0
     if (wide || (Math.sign(end) === sign && Math.abs(end) > 2)) return "high-shelf"
   }

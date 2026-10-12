@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { detectFeatures, magicMatch, seedFromResidual } from "../src/magicMatch"
 import { fitError, toPreset } from "../src/match"
 import { logFrequencies, responseDb } from "../src/nova/magnitude"
+import { parseStates } from "../src/nova/parse"
 import type { NovaPreset } from "../src/nova/types"
 
 const FREQUENCIES = logFrequencies(320)
@@ -154,6 +155,43 @@ describe("magicMatch", () => {
     const seed = seedFromResidual(searchFreqs, searchRef)
     const active = seed.bands.filter((band) => band.enabled)
     expect(active.some((band) => band.type === "low-shelf")).toBe(true)
+  })
+
+  it("uses a bell for a closed sub dip that returns toward 0 at DC, not a low shelf", () => {
+    const pasted = parseStates(`<TDRNova bandActive_1="On" bandGain_1="-13.2" bandQ_1="0.89" bandFreq_1="33.78" bandType_1="Bell" bandDynActive_1="Off" bandActive_2="On" bandGain_2="13.6" bandQ_2="1.31" bandFreq_2="121.98" bandType_2="Bell" bandDynActive_2="Off" bandActive_3="On" bandGain_3="-15.3" bandQ_3="0.48" bandFreq_3="599.85" bandType_3="Bell" bandDynActive_3="Off" bandActive_4="On" bandGain_4="16.3" bandQ_4="2.67" bandFreq_4="3546.36" bandType_4="Bell" bandDynActive_4="Off" hpActive_master="Off" hpFreq_master="20" hpType_master="12dB/oct" lpActive_master="Off" lpFreq_master="20000" lpType_master="12dB/oct" bandGain_wide="0.0" bandDynActive_wide="Off" dryMix_master="0.0" eqAutoGainParam="Off" bypass_master="Off" delta_master="Off" />`)
+    expect(pasted.error).toBeNull()
+    const reference = responseDb(pasted.presets[0]!, FREQUENCIES)
+    const features = detectFeatures(FREQUENCIES, reference)
+    const sub = features.find((feature) => feature.frequencyHz < 80)
+    expect(sub).toBeTruthy()
+    expect(sub!.openToLowEdge).toBe(false)
+    expect(sub!.preferredType).toBe("bell")
+
+    const result = magicMatch(reference, FREQUENCIES, { random: mulberry32(5) })
+    const low = result.bands
+      .filter((band) => band?.enabled)
+      .sort((a, b) => (a!.frequencyHz) - (b!.frequencyHz))[0]
+    expect(low).toBeTruthy()
+    expect(low!.type).toBe("bell")
+    expect(low!.frequencyHz).toBeLessThan(80)
+    expect(low!.gainDb).toBeLessThan(-6)
+
+    // Floor near 10–20 Hz should recover toward 0, not sit on a shelf plateau.
+    const actual = responseDb(
+      toPreset({
+        id: "x",
+        name: "x",
+        color: "#000",
+        muted: false,
+        solo: false,
+        bands: result.bands,
+        highPass: result.highPass,
+        lowPass: result.lowPass,
+      }),
+      FREQUENCIES,
+    )
+    const lowIndex = FREQUENCIES.findIndex((frequency) => frequency >= 15)
+    expect(Math.abs(actual[lowIndex] ?? 99)).toBeLessThan(5)
   })
 
   it("prefers a high shelf for an open-ended high cut instead of a bell", () => {
