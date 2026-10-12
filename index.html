@@ -52,7 +52,8 @@
         <div class="hero__vignette" aria-hidden="true"></div>
         <div class="hero__content">
           <h1 id="hero-title" class="hero__title">
-            Merge messy EQ stacks into <span class="hero__accent">One Curve.</span>
+            Merge messy EQ stacks into
+            <span class="hero__accent">One&nbsp;Curve.</span>
           </h1>
           <div class="hero__value">
             <p>
@@ -74,25 +75,15 @@
                 />
               </svg>
             </a>
-            <a class="btn btn--ghost btn--md" href="#workflow">How it Works</a>
-          </div>
-          <div class="hero__proof">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.5-4.5 1.4 1.4-5.9 5.9Z"
-              />
-            </svg>
-            <span>Free · Browser-based · Zero signup · Nothing uploaded</span>
+            <a class="btn btn--ghost btn--md hero__secondary" href="#features">See the tool</a>
           </div>
         </div>
       </section>
 
-      <section class="section section--dim" id="workflow" aria-labelledby="workflow-title">
+      <section class="section section--dim desktop-story" id="workflow" aria-labelledby="workflow-title">
         <div class="section__inner" id="interactive-sum">
           <div class="section__header">
             <div>
-              <span class="section__eyebrow">Acoustic superposition in practice</span>
               <h2 id="workflow-title" class="section__title">See how stacked curves add together.</h2>
               <p class="section__lead">
                 When multiple EQ plugins run in sequence, their boosts and cuts combine into one
@@ -100,14 +91,13 @@
                 with surgical precision.
               </p>
             </div>
-            <span class="formula-pill">A + B + C = Net Curve</span>
           </div>
 
           <div class="stack-row">
             <article class="eq-card eq-card--cyan">
               <div class="eq-card__meta">
                 <span class="eq-card__tag">EQ 1</span>
-                <span class="eq-card__label">High Dips (4k &amp; 10k)</span>
+                <span class="eq-card__label">High dips</span>
               </div>
               <div class="eq-card__plot">
                 <svg viewBox="0 0 200 80" aria-hidden="true">
@@ -123,11 +113,6 @@
                   <circle cx="178" cy="58" fill="#06B6D4" r="3" />
                 </svg>
               </div>
-              <div class="eq-card__axis">
-                <span>Low (0dB)</span>
-                <span>Mid (0dB)</span>
-                <span style="color: var(--neon-cyan)">Notches</span>
-              </div>
             </article>
 
             <div class="stack-op" aria-hidden="true">+</div>
@@ -135,7 +120,7 @@
             <article class="eq-card eq-card--violet">
               <div class="eq-card__meta">
                 <span class="eq-card__tag">EQ 2</span>
-                <span class="eq-card__label">Low Scoop (150Hz)</span>
+                <span class="eq-card__label">Low scoop</span>
               </div>
               <div class="eq-card__plot">
                 <svg viewBox="0 0 200 80" aria-hidden="true">
@@ -150,11 +135,6 @@
                   <circle cx="52" cy="65" fill="#A855F7" r="3" />
                 </svg>
               </div>
-              <div class="eq-card__axis">
-                <span style="color: var(--neon-violet)">−6dB Scoop</span>
-                <span>Mid (0dB)</span>
-                <span>High (0dB)</span>
-              </div>
             </article>
 
             <div class="stack-op" aria-hidden="true">+</div>
@@ -162,7 +142,7 @@
             <article class="eq-card eq-card--pink">
               <div class="eq-card__meta">
                 <span class="eq-card__tag">EQ 3</span>
-                <span class="eq-card__label">Mid Boost (1kHz)</span>
+                <span class="eq-card__label">Mid boost</span>
               </div>
               <div class="eq-card__plot">
                 <svg viewBox="0 0 200 80" aria-hidden="true">
@@ -177,27 +157,14 @@
                   <circle cx="105" cy="18" fill="#EC4899" r="3" />
                 </svg>
               </div>
-              <div class="eq-card__axis">
-                <span>Low (0dB)</span>
-                <span style="color: var(--neon-pink)">+5dB Bell</span>
-                <span>High (0dB)</span>
-              </div>
             </article>
 
             <div class="stack-op stack-op--gold" aria-hidden="true">=</div>
 
             <div class="stack-sum">
               <div class="stack-sum__top">
-                <div>
-                  <span class="stack-sum__badge">One Curve</span>
-                  <span class="stack-sum__title">Total Mathematical Sum</span>
-                </div>
-                <div class="stack-sum__legend">
-                  <span><i class="legend-dot" style="background: #a855f7"></i>Scoop</span>
-                  <span><i class="legend-dot" style="background: #ec4899"></i>Mid Boost</span>
-                  <span><i class="legend-dot" style="background: #06b6d4"></i>High Dips</span>
-                  <span style="color: var(--neon-gold); font-weight: 700">= 1 Clean Instance</span>
-                </div>
+                <span class="stack-sum__badge">One Curve</span>
+                <span class="stack-sum__result">= 1 clean instance</span>
               </div>
               <div class="stack-sum__plot">
                 <svg viewBox="0 0 600 120" aria-hidden="true">
@@ -216,32 +183,9 @@
                   <circle cx="518" cy="86" fill="#06B6D4" r="4" stroke="#FACC15" stroke-width="1.5" />
                 </svg>
               </div>
-              <div class="stack-sum__axis">
-                <span>20 Hz – Lows</span>
-                <span>500 Hz – Mids</span>
-                <span>2k – High Mids</span>
-                <span>20 kHz – Air</span>
-              </div>
             </div>
           </div>
 
-          <div class="outcome-grid">
-            <div class="outcome-card">
-              <span class="outcome-card__kicker">Original Mess</span>
-              <h3 class="outcome-card__title">3 Separate Plugins (10+ Active Bands)</h3>
-              <p>Flipping back and forth between multiple windows trying to hear which plugin does what.</p>
-            </div>
-            <div class="outcome-card">
-              <span class="outcome-card__kicker">The Summed Truth</span>
-              <h3 class="outcome-card__title outcome-card__title--gold">One Cumulative Acoustic Target</h3>
-              <p>One Curve exposes the cumulative effect of all cuts, boosts, and overlap artifacts instantly.</p>
-            </div>
-            <div class="outcome-card">
-              <span class="outcome-card__kicker">The Solved Mix</span>
-              <h3 class="outcome-card__title outcome-card__title--emerald">1 Single Insert Plugin</h3>
-              <p>Replaced with one single instance dialed in at the front of your chain for total mix clarity.</p>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -292,7 +236,7 @@
         </div>
       </section>
 
-      <section class="section compare" id="compare" aria-labelledby="compare-title">
+      <section class="section compare desktop-story" id="compare" aria-labelledby="compare-title">
         <div class="section__inner">
           <div class="section__header">
             <div>
