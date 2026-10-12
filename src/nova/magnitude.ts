@@ -33,8 +33,10 @@ function gainAt(preset: NovaPreset, frequency: number): number {
   let gain = preset.wideGainDb
   for (const band of preset.bands) {
     const response = biquadDb(band.type, frequency, band.frequencyHz, band.gainDb, Math.max(band.q, MIN_Q))
-    if (response < -1e-4) cuts.push(response)
-    else if (response > 1e-4) boosts.push(response)
+    // Group by the knob, not the sample. A shelf overshoots through 0 dB, and
+    // sorting that sample into the other group puts a step on the shelf frequency.
+    if (band.gainDb < -1e-4) cuts.push(response)
+    else if (band.gainDb > 1e-4) boosts.push(response)
   }
   gain += parallelGroup(cuts, -1)
   gain += parallelGroup(boosts, 1)

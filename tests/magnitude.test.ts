@@ -138,6 +138,36 @@ describe("responseDb", () => {
     expect(corner).toBeLessThan(0.02)
   })
 
+  it("keeps a shelf corner smooth when another band is active", () => {
+    const text = `<TDRNova bandActive_1="On" bandGain_1="-4.7" bandQ_1="1.16" bandFreq_1="39.74" bandType_1="High S" bandDynActive_1="Off" bandActive_2="On" bandGain_2="7.0" bandQ_2="0.78" bandFreq_2="267.53" bandType_2="Bell" bandDynActive_2="Off" bandActive_3="Off" bandGain_3="0.0" bandQ_3="1.00" bandFreq_3="1000" bandType_3="Bell" bandDynActive_3="Off" bandActive_4="Off" bandGain_4="0.0" bandQ_4="1.00" bandFreq_4="1000" bandType_4="Bell" bandDynActive_4="Off" hpActive_master="Off" hpFreq_master="20" hpType_master="12dB/oct" lpActive_master="Off" lpFreq_master="20000" lpType_master="12dB/oct" bandGain_wide="0.0" bandDynActive_wide="Off" dryMix_master="0.0" eqAutoGainParam="Off" bypass_master="Off" delta_master="Off" />`
+    const state = parseStates(text).presets[0]
+    const frequencies = logFrequencies(800, 15, 120)
+    const curve = responseDb(state!, frequencies)
+    let corner = 0
+    for (let i = 2; i < curve.length; i++) {
+      corner = Math.max(corner, Math.abs((curve[i] ?? 0) - 2 * (curve[i - 1] ?? 0) + (curve[i - 2] ?? 0)))
+    }
+    expect(corner).toBeLessThan(0.05)
+
+    const lowShelf = responseDb(
+      preset({
+        bands: [
+          { index: 1, type: "low-shelf", frequencyHz: 180, gainDb: 5.5, q: 1.2, dynamics: false },
+          { index: 2, type: "bell", frequencyHz: 900, gainDb: -6, q: 0.8, dynamics: false },
+        ],
+      }),
+      logFrequencies(800, 40, 800),
+    )
+    let lowCorner = 0
+    for (let i = 2; i < lowShelf.length; i++) {
+      lowCorner = Math.max(
+        lowCorner,
+        Math.abs((lowShelf[i] ?? 0) - 2 * (lowShelf[i - 1] ?? 0) + (lowShelf[i - 2] ?? 0)),
+      )
+    }
+    expect(lowCorner).toBeLessThan(0.05)
+  })
+
   it("keeps spaced deep cuts on their nodes", () => {
     const curve = responseDb(
       preset({
