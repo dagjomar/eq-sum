@@ -1,3 +1,5 @@
+import { EQ_GRID_GLSL } from "./eqGridShader"
+
 /** Animated EQ-stack WebGL background for the landing hero. */
 export function startHeroShader(canvas: HTMLCanvasElement): () => void {
   function syncSize() {
@@ -33,6 +35,8 @@ uniform vec2 u_resolution;
 uniform vec2 u_mouse;
 varying vec2 v_texCoord;
 
+${EQ_GRID_GLSL}
+
 float eqBell(float x, float centerFreq, float gain, float q) {
     float diff = (x - centerFreq) * q;
     return gain * exp(-diff * diff * 0.5);
@@ -56,12 +60,10 @@ void main() {
 
     vec3 color = vec3(0.04, 0.045, 0.055);
 
-    vec2 gridUv = fract(uv * vec2(60.0, 36.0 * (u_resolution.y / u_resolution.x))) - 0.5;
-    float dots = smoothstep(0.08, 0.03, length(gridUv)) * 0.16;
-    color += vec3(0.25, 0.35, 0.48) * dots;
+    color += eqAnalyzerGrid(uv, u_resolution, mouseNorm);
 
     float centerLine = smoothstep(0.003, 0.0, abs(y - 0.5));
-    color += vec3(0.18, 0.22, 0.28) * centerLine * 0.45;
+    color += vec3(0.18, 0.22, 0.28) * centerLine * 0.35;
 
     float c1_f1 = 0.25 + 0.08 * sin(t * 0.7);
     float c1_g1 = 0.14 * sin(t * 0.9 + 1.2);
@@ -117,6 +119,10 @@ void main() {
     if (!shader) return null
     gl.shaderSource(shader, src)
     gl.compileShader(shader)
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.warn("[heroShader]", gl.getShaderInfoLog(shader))
+      return null
+    }
     return shader
   }
 
@@ -130,6 +136,10 @@ void main() {
   gl.attachShader(prog, vertex)
   gl.attachShader(prog, fragment)
   gl.linkProgram(prog)
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.warn("[heroShader]", gl.getProgramInfoLog(prog))
+    return () => resizeObserver?.disconnect()
+  }
   gl.useProgram(prog)
 
   const buf = gl.createBuffer()
@@ -143,15 +153,19 @@ void main() {
   const uRes = gl.getUniformLocation(prog, "u_resolution")
   const uMouse = gl.getUniformLocation(prog, "u_mouse")
 
-  let mouse = { x: canvas.width / 2, y: canvas.height / 2 }
+  let mouse = { x: -1, y: -1 }
   const onMouseMove = (event: MouseEvent) => {
     const rect = canvas.getBoundingClientRect()
-    if (rect.width && rect.height) {
-      const nx = (event.clientX - rect.left) / rect.width
-      const ny = 1.0 - (event.clientY - rect.top) / rect.height
-      mouse.x = nx * canvas.width
-      mouse.y = ny * canvas.height
+    if (!rect.width || !rect.height) return
+    const nx = (event.clientX - rect.left) / rect.width
+    const ny = 1.0 - (event.clientY - rect.top) / rect.height
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) {
+      mouse.x = -1
+      mouse.y = -1
+      return
     }
+    mouse.x = nx * canvas.width
+    mouse.y = ny * canvas.height
   }
   window.addEventListener("mousemove", onMouseMove)
 

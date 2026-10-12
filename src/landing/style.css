@@ -50,6 +50,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+.page-eq-grid {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
 body ::selection {
   background: var(--neon-gold);
   color: #000;
@@ -209,6 +218,8 @@ img {
 }
 
 main {
+  position: relative;
+  z-index: 1;
   padding-top: 3.5rem;
 }
 
@@ -330,10 +341,11 @@ main {
 .section {
   padding: 5rem var(--gutter);
   border-top: 1px solid var(--border);
+  background: rgba(9, 10, 16, 0.42);
 }
 
 .section--dim {
-  background: var(--bg-dim);
+  background: rgba(12, 13, 20, 0.48);
 }
 
 .section__inner {
@@ -877,11 +889,11 @@ main {
 .about {
   padding: 4.5rem var(--gutter);
   border-top: 1px solid var(--border);
-  background: var(--bg-dim);
+  background: rgba(12, 13, 20, 0.48);
 }
 
 .about--nova {
-  background: var(--bg);
+  background: rgba(9, 10, 16, 0.42);
 }
 
 .about__inner {
@@ -993,8 +1005,10 @@ main {
 
 /* —— Footer —— */
 .site-footer {
+  position: relative;
+  z-index: 1;
   padding: 3rem var(--gutter);
-  background: var(--bg);
+  background: rgba(9, 10, 16, 0.72);
   border-top: 1px solid var(--border);
 }
 
