@@ -21,7 +21,10 @@ const GLOBAL_MEAN_WEIGHT = 0.15
 const GLOBAL_MAX_WEIGHT = 0.35
 const COVERAGE_WEIGHT = 1.1
 const EDGE_WEIGHT = 0.85
-const SPARSITY = 0.03
+/** Tiny cost per active node — not enough to drop a real residual feature. */
+const SPARSITY = 0.01
+/** Penalize leaving free slots empty while unmatched features remain. */
+const UNDERUSE = 0.22
 const QUICK_POP = 14
 const QUICK_GENS = 28
 const DEEP_POP = 20
@@ -180,31 +183,74 @@ export function detectFeatures(
   reference: number[],
   endHints: EndFilterHints = detectEndFilterHints(frequencies, reference),
 ): Feature[] {
-  const smoothed = smooth(reference, 2)
-  const extrema = findExtrema(frequencies, smoothed).filter((peak) => {
-    // HP/LP edges are handled by end filters, not parametric shelves/bells.
-    if (endHints.highPass && peak.frequencyHz < 100) return false
-    if (endHints.lowPass && peak.frequencyHz > 8_000) return false
-    return true
-  })
-  const maxAbs = Math.max(...extrema.map((peak) => Math.abs(peak.gainDb)), 0.5)
-  return extrema.map((peak) => {
-    const span = sameSignSpan(frequencies, smoothed, peak.index, Math.sign(peak.gainDb) || 1)
-    // Continuing HP/LP roll-off is "open" but must not become a shelf.
-    const openToLowEdge = !endHints.highPass && isOpenToEdge(frequencies, smoothed, peak, "low")
-    const openToHighEdge = !endHints.lowPass && isOpenToEdge(frequencies, smoothed, peak, "high")
+  // Nova same-sign bands join in parallel, so one curve pass often hides
+  // weaker bells. Peel features off the residual until slots are filled.
+  let residual = smooth(reference, 2)
+  const collected: Feature[] = []
+  for (let round = 0; round < BAND_SLOTS; round++) {
+    const peaks = findExtrema(frequencies, residual).filter((peak) => {
+      if (endHints.highPass && peak.index <= 2) return false
+      if (endHints.lowPass && peak.index >= frequencies.length - 3) return false
+      const near = collected.some(
+        (feature) => Math.abs(Math.log(feature.frequencyHz / peak.frequencyHz)) < 0.28,
+      )
+      return !near && Math.abs(peak.gainDb) >= 0.55
+    })
+    const peak = peaks[0]
+    if (!peak) break
+    const span = sameSignSpan(frequencies, residual, peak.index, Math.sign(peak.gainDb) || 1)
+    const openToLowEdge = !endHints.highPass && isOpenToEdge(frequencies, residual, peak, "low")
+    const openToHighEdge = !endHints.lowPass && isOpenToEdge(frequencies, residual, peak, "high")
     const halfWidth = clamp(0.28 + span * 0.18, 0.28, FEATURE_HALF_WIDTH + 0.35)
-    return {
+    collected.push({
       index: peak.index,
       frequencyHz: peak.frequencyHz,
       gainDb: peak.gainDb,
-      preferredType: pickType(frequencies, smoothed, peak, openToLowEdge, openToHighEdge),
-      weight: 1.2 + 3.8 * (Math.abs(peak.gainDb) / maxAbs),
+      preferredType: pickType(frequencies, residual, peak, openToLowEdge, openToHighEdge),
+      weight: 1,
       halfWidth,
       openToLowEdge,
       openToHighEdge,
-    }
-  })
+    })
+    residual = subtractProvisionalBand(frequencies, residual, peak)
+  }
+
+  const maxAbs = Math.max(...collected.map((feature) => Math.abs(feature.gainDb)), 0.5)
+  return collected
+    .map((feature) => ({
+      ...feature,
+      weight: 1.2 + 3.8 * (Math.abs(feature.gainDb) / maxAbs),
+    }))
+    .sort((a, b) => Math.abs(b.gainDb) - Math.abs(a.gainDb))
+}
+
+/** Remove an approximate bell from the residual so weaker neighbors can surface. */
+function subtractProvisionalBand(
+  frequencies: number[],
+  residual: number[],
+  peak: { frequencyHz: number; gainDb: number },
+): number[] {
+  const probe = responseDb(
+    {
+      variant: "TDRNova",
+      bands: [
+        {
+          index: 1,
+          type: "bell",
+          frequencyHz: peak.frequencyHz,
+          gainDb: peak.gainDb,
+          q: 1,
+          dynamics: false,
+        },
+      ],
+      highPass: null,
+      lowPass: null,
+      wideGainDb: 0,
+      warnings: [],
+    },
+    frequencies,
+  )
+  return residual.map((value, index) => value - (probe[index] ?? 0))
 }
 
 /** True when the extreme keeps falling steeply (HP/LP), not leveling like a shelf. */
@@ -356,19 +402,12 @@ function enumerateLayouts(
     }
   }
 
-  // Pure-bell baseline for mid features (and when ends are handled by HP/LP).
-  const edgeShelf = features.slice(0, count).some((feature) => feature.openToHighEdge || feature.openToLowEdge)
-  if (!edgeShelf || endHints.highPass || endHints.lowPass) {
-    const midFeatures = features
-      .filter((feature) => {
-        if (endHints.highPass && feature.frequencyHz < 120) return false
-        if (endHints.lowPass && feature.frequencyHz > 6000) return false
-        return true
-      })
-      .slice(0, count)
-    const chosen = midFeatures.length > 0 ? midFeatures : features.slice(0, Math.min(1, count))
-    const bells = chosen.map(() => "bell" as BandType)
-    const ordered = slotFreeTypes(chosen, bells, free.length)
+  // Always keep a full-slot pure-bell layout when we have enough features —
+  // sparsity must not win by never trying all four bands.
+  const full = features.slice(0, Math.min(free.length, features.length))
+  if (full.length > 0) {
+    const bells = full.map(() => "bell" as BandType)
+    const ordered = slotFreeTypes(full, bells, free.length)
     for (const filters of filterOptions) pushLayout(ordered, filters)
   }
 
@@ -604,6 +643,8 @@ function scoreGenotype(gene: Genotype, ctx: ScoreContext): number {
   }, 0)
   const shelfMismatch = edgeShelfPenalty(gene, ctx)
   const filterMismatch = endFilterPenalty(gene, ctx)
+  const notableFeatures = ctx.features.filter((feature) => Math.abs(feature.gainDb) >= 1.5).length
+  const underuse = Math.max(0, Math.min(BAND_SLOTS, notableFeatures) - activeBands) * UNDERUSE
 
   return (
     featureCost +
@@ -612,6 +653,7 @@ function scoreGenotype(gene: Genotype, ctx: ScoreContext): number {
     COVERAGE_WEIGHT * (1 - coverage) +
     EDGE_WEIGHT * edgeMean +
     SPARSITY * (activeBands + activeFilters) +
+    underuse +
     widePenalty +
     shelfMismatch +
     filterMismatch
@@ -1010,8 +1052,16 @@ function looksLikeEndFilter(frequencies: number[], values: number[], kind: "hp" 
   if (values.length < 12) return false
   const slope = edgeSlopeDbPerOct(frequencies, values, kind)
   const edge = kind === "hp" ? (values[0] ?? 0) : (values[values.length - 1] ?? 0)
-  // Shelf plateaus (shallow edge slope); HP/LP keeps falling (~6+ dB/oct near the extreme).
-  return edge < -6 && slope >= 4.5
+  // Shelf plateaus (shallow edge slope); HP/LP keeps falling. Allow gentle 6 dB/oct.
+  if (edge < -3 && slope >= 2.8) return true
+  // Mild HP: deepish edge that rises toward the first octave (even if slope is soft).
+  if (kind === "hp" && edge < -5) {
+    const f0 = frequencies[0] ?? 10
+    let i1 = 0
+    while (i1 < frequencies.length - 1 && (frequencies[i1] ?? 0) < f0 * 3) i1 += 1
+    return (values[i1] ?? 0) - edge > 2.5
+  }
+  return false
 }
 
 function edgeSlopeDbPerOct(frequencies: number[], values: number[], kind: "hp" | "lp"): number {

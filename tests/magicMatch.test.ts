@@ -194,6 +194,21 @@ describe("magicMatch", () => {
     expect(Math.abs(actual[lowIndex] ?? 99)).toBeLessThan(5)
   })
 
+  it("uses all four bells plus HP/LP when the reference has that exact layout", () => {
+    const pasted = parseStates(`<TDRNova bandActive_1="On" bandGain_1="-6.4" bandQ_1="0.62" bandFreq_1="75.02" bandType_1="Bell" bandDynActive_1="Off" bandActive_2="On" bandGain_2="-6.1" bandQ_2="1.04" bandFreq_2="215.62" bandType_2="Bell" bandDynActive_2="Off" bandActive_3="On" bandGain_3="-17.3" bandQ_3="1.00" bandFreq_3="914.09" bandType_3="Bell" bandDynActive_3="Off" bandActive_4="On" bandGain_4="-9.3" bandQ_4="1.00" bandFreq_4="3317.97" bandType_4="Bell" bandDynActive_4="Off" hpActive_master="On" hpFreq_master="21.47" hpType_master="6dB/oct" lpActive_master="On" lpFreq_master="17845.55" lpType_master="12dB/oct" bandGain_wide="0.0" bandDynActive_wide="Off" dryMix_master="0.0" eqAutoGainParam="Off" bypass_master="Off" delta_master="Off" />`)
+    const reference = responseDb(pasted.presets[0]!, FREQUENCIES)
+    const features = detectFeatures(FREQUENCIES, reference)
+    expect(features.filter((feature) => feature.frequencyHz > 40 && feature.frequencyHz < 6_000).length).toBeGreaterThanOrEqual(4)
+
+    const result = magicMatch(reference, FREQUENCIES, { random: mulberry32(13) })
+    expect(result.highPass?.enabled).toBe(true)
+    expect(result.lowPass?.enabled).toBe(true)
+    const enabled = result.bands.filter((band) => band?.enabled)
+    expect(enabled).toHaveLength(4)
+    expect(enabled.every((band) => band?.type === "bell")).toBe(true)
+    expect(result.error.mean).toBeLessThan(1.25)
+  })
+
   it("prefers HP and LP for steep end roll-offs instead of shelves", () => {
     const pasted = parseStates(`<TDRNova bandActive_1="Off" bandGain_1="0.0" bandQ_1="1.00" bandFreq_1="1000" bandType_1="Bell" bandDynActive_1="Off" bandActive_2="On" bandGain_2="-18.0" bandQ_2="1.01" bandFreq_2="708.73" bandType_2="Bell" bandDynActive_2="Off" bandActive_3="Off" bandGain_3="0.0" bandQ_3="1.00" bandFreq_3="1000" bandType_3="Bell" bandDynActive_3="Off" bandActive_4="Off" bandGain_4="0.0" bandQ_4="1.00" bandFreq_4="1000" bandType_4="Bell" bandDynActive_4="Off" hpActive_master="On" hpFreq_master="45.42" hpType_master="12dB/oct" lpActive_master="On" lpFreq_master="7793.97" lpType_master="12dB/oct" bandGain_wide="0.0" bandDynActive_wide="Off" dryMix_master="0.0" eqAutoGainParam="Off" bypass_master="Off" delta_master="Off" />`)
     const reference = responseDb(pasted.presets[0]!, FREQUENCIES)
