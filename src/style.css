@@ -255,7 +255,21 @@ canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
   margin-bottom: 0.65rem;
 }
 
-.panel-head .text { margin-left: auto; }
+.panel-head > .text,
+.panel-head .panel-actions {
+  margin-left: auto;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.fit-status {
+  margin: -0.25rem 0 0.55rem;
+  color: #c4b089;
+}
 
 textarea {
   width: 100%;
@@ -416,7 +430,21 @@ textarea {
 
 .pick-cut { width: 2rem; font-size: 0.62rem; letter-spacing: 0.04em; }
 
-.eq-deck { display: flex; align-items: flex-end; gap: 0.9rem; }
+.eq-deck { display: flex; align-items: flex-end; gap: 0.9rem; flex-wrap: wrap; }
+
+.lock-toggle {
+  align-self: center;
+  margin-left: 0.25rem;
+  min-width: 3.5rem;
+}
+
+.lock-toggle[aria-pressed="true"] {
+  color: #f0c36a;
+}
+
+.pick.is-locked {
+  box-shadow: inset 0 0 0 1px #8a7040;
+}
 
 .shapes { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1.2rem; }
 

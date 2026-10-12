@@ -1,6 +1,7 @@
 import { EXAMPLE_PASTE } from "./example"
 import { drawGraph, handleAtPoint, indexFromX, labelColor, xToFrequency, yToDb, type DrawnCurve, type GraphHandle } from "./graph"
 import { createKnob, type KnobController } from "./knob"
+import { magicMatch } from "./magicMatch"
 import {
   FILTER_SLOPES,
   emptyBands,
@@ -147,8 +148,12 @@ app.innerHTML = `
       <section class="panel">
         <div class="panel-head">
           <h2 id="editor-title">Nodes</h2>
-          <button id="copy-state" class="text" type="button">Copy state</button>
+          <div class="panel-actions">
+            <button id="magic-match" class="text" type="button">Magic Match</button>
+            <button id="copy-state" class="text" type="button">Copy state</button>
+          </div>
         </div>
+        <p id="fit-status" class="meta fit-status" hidden></p>
         <div id="editor"></div>
       </section>
     </div>
@@ -176,7 +181,10 @@ const matchRows = required<HTMLElement>("#match-rows")
 const editor = required<HTMLElement>("#editor")
 const editorTitle = required<HTMLElement>("#editor-title")
 const addNovaButton = required<HTMLButtonElement>("#add-nova")
+const magicMatchButton = required<HTMLButtonElement>("#magic-match")
 const copyStateButton = required<HTMLButtonElement>("#copy-state")
+const fitStatus = required<HTMLElement>("#fit-status")
+let fitStatusTimer = 0
 
 required<HTMLButtonElement>("#add").addEventListener("click", () => addPaste(paste.value))
 required<HTMLButtonElement>("#example").addEventListener("click", () => addPaste(EXAMPLE_PASTE))
@@ -198,6 +206,7 @@ addNovaButton.addEventListener("click", () => {
   persist()
   render()
 })
+magicMatchButton.addEventListener("click", () => runMagicMatch())
 copyStateButton.addEventListener("click", () => {
   const selected = selectedMatch()
   if (!selected) return
@@ -498,6 +507,8 @@ function renderMatch(): void {
     selectedMatchId = matches[0]?.id ?? null
   }
   addNovaButton.disabled = !canAddNova()
+  magicMatchButton.disabled = instances.length === 0 || magicMatchButton.dataset.busy === "1"
+  copyStateButton.disabled = !selectedMatch()
   matchRows.replaceChildren()
   for (const [index, instance] of matches.entries()) {
     const item = document.createElement("li")
@@ -535,7 +546,6 @@ function renderMatch(): void {
 
 function renderEditor(): void {
   const selected = selectedMatch()
-  copyStateButton.disabled = !selected
   editorTitle.textContent = selected?.name ?? "Nodes"
   liveKnobs = {}
   liveFilter = null
@@ -622,7 +632,19 @@ function renderEditor(): void {
       },
     })
     liveKnobs = { freq, gain, q }
-    deck.append(shapes, q.element, freq.element, gain.element)
+    const lock = document.createElement("button")
+    lock.type = "button"
+    lock.className = "text lock-toggle"
+    lock.dataset.action = "toggle-lock"
+    lock.setAttribute("aria-pressed", String(Boolean(band.locked)))
+    lock.textContent = band.locked ? "Locked" : "Lock"
+    lock.title = band.locked
+      ? "Unlock this band so Magic Match can replace it"
+      : "Lock this band: Magic Match keeps type/on and only nudges Freq/Gain/Q"
+    if (band.locked) {
+      for (const button of shapes.querySelectorAll("button")) button.setAttribute("disabled", "true")
+    }
+    deck.append(shapes, q.element, freq.element, gain.element, lock)
     editor.append(deck)
   }
 }
@@ -642,10 +664,12 @@ function bandSlot(instance: MatchInstance, slot: number): HTMLButtonElement {
   const current = selectedCut === null && band?.id === selectedBandId
   const button = document.createElement("button")
   button.type = "button"
-  button.className = `pick${on ? " is-on" : " is-off"}${current ? " is-current" : ""}`
+  const locked = Boolean(band?.locked)
+  button.className = `pick${on ? " is-on" : " is-off"}${current ? " is-current" : ""}${locked ? " is-locked" : ""}`
   button.dataset.action = "select-band"
   button.dataset.slot = String(slot)
-  button.textContent = `${slot + 1}`
+  button.textContent = locked ? `${slot + 1}*` : `${slot + 1}`
+  button.title = locked ? `Band ${slot + 1} locked for Magic Match` : `Band ${slot + 1}`
   if (on) paintOn(button, instance.color)
   button.setAttribute("aria-pressed", String(on))
   button.setAttribute("aria-label", slotLabel(`Band ${slot + 1}`, on, current))
@@ -656,12 +680,15 @@ function cutSlot(instance: MatchInstance, kind: "hp" | "lp"): HTMLButtonElement 
   const filter = kind === "hp" ? instance.highPass : instance.lowPass
   const on = Boolean(filter?.enabled)
   const current = selectedCut === kind
+  const locked = Boolean(filter?.locked)
   const button = document.createElement("button")
   button.type = "button"
-  button.className = `pick pick-cut${on ? " is-on" : " is-off"}${current ? " is-current" : ""}`
+  button.className = `pick pick-cut${on ? " is-on" : " is-off"}${current ? " is-current" : ""}${locked ? " is-locked" : ""}`
   button.dataset.action = "select-cut"
   button.dataset.filter = kind
-  button.textContent = kind === "hp" ? "HP" : "LP"
+  const label = kind === "hp" ? "HP" : "LP"
+  button.textContent = locked ? `${label}*` : label
+  button.title = locked ? `${label} locked for Magic Match` : label
   if (on) paintOn(button, instance.color)
   button.setAttribute("aria-pressed", String(on))
   button.setAttribute("aria-label", slotLabel(kind === "hp" ? "High-pass" : "Low-pass", on, current))
@@ -716,7 +743,17 @@ function appendFilterDeck(instance: MatchInstance, kind: "hp" | "lp"): void {
   })
   liveKnobs = { freq, slope }
   liveFilter = kind
-  deck.append(freq.element, slope.element)
+  const lock = document.createElement("button")
+  lock.type = "button"
+  lock.className = "text lock-toggle"
+  lock.dataset.action = "toggle-filter-lock"
+  lock.dataset.filter = kind
+  lock.setAttribute("aria-pressed", String(Boolean(filter.locked)))
+  lock.textContent = filter.locked ? "Locked" : "Lock"
+  lock.title = filter.locked
+    ? "Unlock so Magic Match can replace this filter"
+    : "Lock this filter: Magic Match keeps it on with this slope and only nudges frequency"
+  deck.append(freq.element, slope.element, lock)
   editor.append(deck)
 }
 
@@ -760,9 +797,28 @@ function onEditorClick(event: Event): void {
     const slot = Number(button.dataset.slot)
     if (slot >= 0 && slot < 4) selectBandSlot(selected, slot)
   }
+  if (action === "toggle-lock") {
+    const band = selected.bands.find((item) => item?.id === selectedBandId)
+    if (band?.enabled) {
+      band.locked = !band.locked
+      persist()
+      render()
+    }
+    return
+  }
+  if (action === "toggle-filter-lock") {
+    const kind = button.dataset.filter === "lp" ? "lp" : "hp"
+    const filter = kind === "hp" ? selected.highPass : selected.lowPass
+    if (filter?.enabled) {
+      filter.locked = !filter.locked
+      persist()
+      render()
+    }
+    return
+  }
   if (action === "shape" && button.dataset.shape) {
     const band = selected.bands.find((item) => item?.id === selectedBandId)
-    if (band) band.type = button.dataset.shape as BandType
+    if (band && !band.locked) band.type = button.dataset.shape as BandType
   }
   if (action === "select-cut" && (button.dataset.filter === "hp" || button.dataset.filter === "lp")) {
     selectCutSlot(selected, button.dataset.filter)
@@ -978,6 +1034,68 @@ function nodeGain(instance: MatchInstance, frequencyHz: number): number {
   return Math.min(limit, Math.max(-limit, gain))
 }
 
+function runMagicMatch(): void {
+  if (instances.length === 0 || magicMatchButton.dataset.busy === "1") return
+  magicMatchButton.dataset.busy = "1"
+  magicMatchButton.disabled = true
+  magicMatchButton.textContent = "Matching…"
+
+  // Yield so the button label paints before the sync search runs.
+  window.setTimeout(() => {
+    try {
+      let target = selectedMatch()
+      if (!target) {
+        if (!canAddNova()) return
+        target = createMatch()
+        matches.push(target)
+        selectedMatchId = target.id
+      }
+      const result = magicMatch(chainReference(), FREQUENCIES, {
+        bands: target.bands,
+        highPass: target.highPass,
+        lowPass: target.lowPass,
+      })
+      target.bands = result.bands
+      target.highPass = result.highPass
+      target.lowPass = result.lowPass
+      selectedBandId = result.bands.find((band) => band?.locked && band.enabled)?.id
+        ?? result.bands.find((band) => band?.enabled)?.id
+        ?? null
+      selectedCut = result.highPass?.locked
+        ? "hp"
+        : result.lowPass?.locked
+          ? "lp"
+          : result.highPass?.enabled
+            ? "hp"
+            : result.lowPass?.enabled
+              ? "lp"
+              : null
+      if (selectedBandId && !result.highPass?.locked && !result.lowPass?.locked) selectedCut = null
+      const lockedBands = result.bands.filter((band) => band?.locked && band.enabled).length
+      const lockedCuts = (result.highPass?.locked ? 1 : 0) + (result.lowPass?.locked ? 1 : 0)
+      const lockedCount = lockedBands + lockedCuts
+      const lockNote = lockedCount > 0 ? ` · ${lockedCount} locked` : ""
+      showFitStatus(`Fit · mean ${result.error.mean.toFixed(2)} dB · max ${result.error.max.toFixed(2)} dB${lockNote}`)
+      persist()
+      render()
+    } finally {
+      magicMatchButton.dataset.busy = "0"
+      magicMatchButton.textContent = "Magic Match"
+      magicMatchButton.disabled = instances.length === 0
+    }
+  }, 0)
+}
+
+function showFitStatus(message: string): void {
+  fitStatus.hidden = false
+  fitStatus.textContent = message
+  window.clearTimeout(fitStatusTimer)
+  fitStatusTimer = window.setTimeout(() => {
+    fitStatus.hidden = true
+    fitStatus.textContent = ""
+  }, 4000)
+}
+
 function showMode(next: "chain" | "match"): void {
   mode = next
   persist()
@@ -1002,6 +1120,7 @@ function selectBandSlot(instance: MatchInstance, slot: number): void {
   const current = instance.bands[slot]
   const selectedAlready = Boolean(current && current.id === selectedBandId && selectedCut === null)
   if (selectedAlready && current) {
+    if (current.locked) return
     current.enabled = !current.enabled
     return
   }
@@ -1016,10 +1135,16 @@ function selectCutSlot(instance: MatchInstance, kind: "hp" | "lp"): void {
   const key = kind === "hp" ? "highPass" : "lowPass"
   const current = instance[key]
   if (selectedCut === kind && current) {
+    if (current.locked) return
     current.enabled = !current.enabled
     return
   }
-  instance[key] = current ?? { frequencyHz: kind === "hp" ? 30 : 16_000, slopeDbPerOct: 12, enabled: true }
+  instance[key] = current ?? {
+    frequencyHz: kind === "hp" ? 30 : 16_000,
+    slopeDbPerOct: 12,
+    enabled: true,
+    locked: false,
+  }
   instance[key].enabled = true
   selectedCut = kind
 }
@@ -1040,7 +1165,7 @@ function createMatch(): MatchInstance {
 }
 
 function createBand(): MatchBand {
-  return { id: crypto.randomUUID(), type: "bell", frequencyHz: 1000, gainDb: 0, q: 1, enabled: true }
+  return { id: crypto.randomUUID(), type: "bell", frequencyHz: 1000, gainDb: 0, q: 1, enabled: true, locked: false }
 }
 
 function swapMatch(a: number, b: number): void {

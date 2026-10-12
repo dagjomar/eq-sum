@@ -29,12 +29,16 @@ export interface MatchBand {
   gainDb: number
   q: number
   enabled: boolean
+  /** When true, Magic Match keeps type/on and only lightly tweaks continuous params. */
+  locked?: boolean
 }
 
 export interface MatchFilter {
   frequencyHz: number
   slopeDbPerOct: number
   enabled: boolean
+  /** When true, Magic Match keeps this filter on and only lightly nudges frequency. */
+  locked?: boolean
 }
 
 export interface MatchInstance {
@@ -57,14 +61,14 @@ export function normalizeMatch(instance: MatchInstance): MatchInstance {
   const bands = emptyBands()
   instance.bands.forEach((band, index) => {
     if (!band || index > 3) return
-    bands[index] = { ...band, enabled: band.enabled !== false }
+    bands[index] = { ...band, enabled: band.enabled !== false, locked: band.locked === true }
   })
   return { ...instance, bands, highPass: normalizeFilter(instance.highPass), lowPass: normalizeFilter(instance.lowPass) }
 }
 
 function normalizeFilter(filter: MatchFilter | null): MatchFilter | null {
   if (!filter || !Number.isFinite(filter.frequencyHz) || !Number.isFinite(filter.slopeDbPerOct)) return null
-  return { ...filter, enabled: filter.enabled !== false }
+  return { ...filter, enabled: filter.enabled !== false, locked: filter.locked === true }
 }
 
 export function nodeCount(instances: MatchInstance[]): number {
