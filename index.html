@@ -1,13 +1,473 @@
 <!doctype html>
-<html lang="en">
+<html class="dark" lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>One Curve</title>
-    <link rel="stylesheet" href="/src/style.css" />
+    <meta
+      name="description"
+      content="Paste TDR Nova Copy States, see the summed EQ curve, and match it into a cleaner stack. Free, browser-based, zero signup."
+    />
+    <title>One Curve — Merge messy EQ stacks into one curve</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href="%BASE_URL%">
+          <span class="brand__name">One Curve</span>
+          <span class="brand__badge">For TDR Nova</span>
+        </a>
+        <nav class="nav-links" aria-label="Page">
+          <a href="#workflow">Workflow</a>
+          <a href="#interactive-sum">Interactive Sum</a>
+          <a href="#features">Features</a>
+          <a href="#compare">Why Sum?</a>
+        </nav>
+        <a class="btn btn--outline btn--sm" href="%BASE_URL%app/">
+          Open Tool
+          <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M5 12h14M13 6l6 6-6 6"
+            />
+          </svg>
+        </a>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero__shader" aria-hidden="true">
+          <canvas id="hero-shader" width="1280" height="720"></canvas>
+        </div>
+        <div class="hero__vignette" aria-hidden="true"></div>
+        <div class="hero__content">
+          <h1 id="hero-title" class="hero__title">
+            Merge messy EQ stacks into <span class="hero__accent">One Curve.</span>
+          </h1>
+          <div class="hero__value">
+            <p>
+              Paste your TDR Nova EQ copy states to reveal the true summed frequency response —
+              then match it into a clean, single curve for effortless mix clarity.
+            </p>
+          </div>
+          <div class="hero__actions">
+            <a class="btn btn--primary btn--lg" href="%BASE_URL%app/">
+              Launch for TDR Nova
+              <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M5 12h14M13 6l6 6-6 6"
+                />
+              </svg>
+            </a>
+            <a class="btn btn--ghost btn--md" href="#workflow">How it Works</a>
+          </div>
+          <div class="hero__proof">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.5-4.5 1.4 1.4-5.9 5.9Z"
+              />
+            </svg>
+            <span>Free · Browser-based · Zero signup · Nothing uploaded</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--dim" id="workflow" aria-labelledby="workflow-title">
+        <div class="section__inner" id="interactive-sum">
+          <div class="section__header">
+            <div>
+              <span class="section__eyebrow">Acoustic superposition in practice</span>
+              <h2 id="workflow-title" class="section__title">See how stacked curves add together.</h2>
+              <p class="section__lead">
+                When multiple EQ plugins run in sequence, their boosts and cuts combine into one
+                unexpected net shape. One Curve computes the true sum so you can consolidate them
+                with surgical precision.
+              </p>
+            </div>
+            <span class="formula-pill">A + B + C = Net Curve</span>
+          </div>
+
+          <div class="stack-row">
+            <article class="eq-card eq-card--cyan">
+              <div class="eq-card__meta">
+                <span class="eq-card__tag">EQ 1</span>
+                <span class="eq-card__label">High Dips (4k &amp; 10k)</span>
+              </div>
+              <div class="eq-card__plot">
+                <svg viewBox="0 0 200 80" aria-hidden="true">
+                  <line stroke="rgba(255,255,255,0.06)" stroke-dasharray="2 2" x1="0" x2="200" y1="40" y2="40" />
+                  <path
+                    d="M 0 40 L 120 40 C 130 40 135 62 142 62 C 148 62 152 40 160 40 C 168 40 172 58 178 58 C 183 58 188 40 200 40"
+                    fill="none"
+                    stroke="#06B6D4"
+                    stroke-linecap="round"
+                    stroke-width="2.5"
+                  />
+                  <circle cx="142" cy="62" fill="#06B6D4" r="3" />
+                  <circle cx="178" cy="58" fill="#06B6D4" r="3" />
+                </svg>
+              </div>
+              <div class="eq-card__axis">
+                <span>Low (0dB)</span>
+                <span>Mid (0dB)</span>
+                <span style="color: var(--neon-cyan)">Notches</span>
+              </div>
+            </article>
+
+            <div class="stack-op" aria-hidden="true">+</div>
+
+            <article class="eq-card eq-card--violet">
+              <div class="eq-card__meta">
+                <span class="eq-card__tag">EQ 2</span>
+                <span class="eq-card__label">Low Scoop (150Hz)</span>
+              </div>
+              <div class="eq-card__plot">
+                <svg viewBox="0 0 200 80" aria-hidden="true">
+                  <line stroke="rgba(255,255,255,0.06)" stroke-dasharray="2 2" x1="0" x2="200" y1="40" y2="40" />
+                  <path
+                    d="M 0 40 C 20 40 30 65 52 65 C 75 65 85 40 105 40 L 200 40"
+                    fill="none"
+                    stroke="#A855F7"
+                    stroke-linecap="round"
+                    stroke-width="2.5"
+                  />
+                  <circle cx="52" cy="65" fill="#A855F7" r="3" />
+                </svg>
+              </div>
+              <div class="eq-card__axis">
+                <span style="color: var(--neon-violet)">−6dB Scoop</span>
+                <span>Mid (0dB)</span>
+                <span>High (0dB)</span>
+              </div>
+            </article>
+
+            <div class="stack-op" aria-hidden="true">+</div>
+
+            <article class="eq-card eq-card--pink">
+              <div class="eq-card__meta">
+                <span class="eq-card__tag">EQ 3</span>
+                <span class="eq-card__label">Mid Boost (1kHz)</span>
+              </div>
+              <div class="eq-card__plot">
+                <svg viewBox="0 0 200 80" aria-hidden="true">
+                  <line stroke="rgba(255,255,255,0.06)" stroke-dasharray="2 2" x1="0" x2="200" y1="40" y2="40" />
+                  <path
+                    d="M 0 40 L 65 40 C 80 40 90 18 105 18 C 120 18 130 40 150 40 L 200 40"
+                    fill="none"
+                    stroke="#EC4899"
+                    stroke-linecap="round"
+                    stroke-width="2.5"
+                  />
+                  <circle cx="105" cy="18" fill="#EC4899" r="3" />
+                </svg>
+              </div>
+              <div class="eq-card__axis">
+                <span>Low (0dB)</span>
+                <span style="color: var(--neon-pink)">+5dB Bell</span>
+                <span>High (0dB)</span>
+              </div>
+            </article>
+
+            <div class="stack-op stack-op--gold" aria-hidden="true">=</div>
+
+            <div class="stack-sum">
+              <div class="stack-sum__top">
+                <div>
+                  <span class="stack-sum__badge">One Curve</span>
+                  <span class="stack-sum__title">Total Mathematical Sum</span>
+                </div>
+                <div class="stack-sum__legend">
+                  <span><i class="legend-dot" style="background: #a855f7"></i>Scoop</span>
+                  <span><i class="legend-dot" style="background: #ec4899"></i>Mid Boost</span>
+                  <span><i class="legend-dot" style="background: #06b6d4"></i>High Dips</span>
+                  <span style="color: var(--neon-gold); font-weight: 700">= 1 Clean Instance</span>
+                </div>
+              </div>
+              <div class="stack-sum__plot">
+                <svg viewBox="0 0 600 120" aria-hidden="true">
+                  <line stroke="rgba(255,255,255,0.08)" stroke-dasharray="3 3" x1="0" x2="600" y1="60" y2="60" />
+                  <path
+                    d="M 0 60 C 50 60 80 98 135 98 C 190 98 210 24 265 24 C 315 24 330 60 380 60 L 400 60 C 418 60 428 92 440 92 C 452 92 460 60 480 60 C 498 60 508 86 518 86 C 528 86 540 60 600 60"
+                    fill="none"
+                    stroke="#FACC15"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3.5"
+                  />
+                  <circle cx="135" cy="98" fill="#A855F7" r="4.5" stroke="#FACC15" stroke-width="1.5" />
+                  <circle cx="265" cy="24" fill="#EC4899" r="4.5" stroke="#FACC15" stroke-width="1.5" />
+                  <circle cx="440" cy="92" fill="#06B6D4" r="4" stroke="#FACC15" stroke-width="1.5" />
+                  <circle cx="518" cy="86" fill="#06B6D4" r="4" stroke="#FACC15" stroke-width="1.5" />
+                </svg>
+              </div>
+              <div class="stack-sum__axis">
+                <span>20 Hz – Lows</span>
+                <span>500 Hz – Mids</span>
+                <span>2k – High Mids</span>
+                <span>20 kHz – Air</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="outcome-grid">
+            <div class="outcome-card">
+              <span class="outcome-card__kicker">Original Mess</span>
+              <h3 class="outcome-card__title">3 Separate Plugins (10+ Active Bands)</h3>
+              <p>Flipping back and forth between multiple windows trying to hear which plugin does what.</p>
+            </div>
+            <div class="outcome-card">
+              <span class="outcome-card__kicker">The Summed Truth</span>
+              <h3 class="outcome-card__title outcome-card__title--gold">One Cumulative Acoustic Target</h3>
+              <p>One Curve exposes the cumulative effect of all cuts, boosts, and overlap artifacts instantly.</p>
+            </div>
+            <div class="outcome-card">
+              <span class="outcome-card__kicker">The Solved Mix</span>
+              <h3 class="outcome-card__title outcome-card__title--emerald">1 Single Insert Plugin</h3>
+              <p>Replaced with one single instance dialed in at the front of your chain for total mix clarity.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--dim" id="features" aria-labelledby="features-title">
+        <div class="section__inner">
+          <h2 id="features-title" class="visually-hidden">Features</h2>
+
+          <article class="feature">
+            <div class="feature__copy">
+              <span class="section__eyebrow section__eyebrow--cyan">Chain view</span>
+              <h3 class="section__title">Chain Superposition Engine</h3>
+              <p>
+                Stack without the guesswork. Copy State on each TDR Nova in your channel and paste it
+                here. One Curve draws every layer and shows you the yellow summed response so you
+                instantly spot conflicting boosts or harsh resonant buildups.
+              </p>
+            </div>
+            <div class="feature__media">
+              <img
+                src="%BASE_URL%screenshots/chain-view.png"
+                alt="One Curve Chain view with multiple Nova curves and the yellow sum"
+                width="1200"
+                height="750"
+                loading="lazy"
+              />
+            </div>
+          </article>
+
+          <article class="feature feature--reverse">
+            <div class="feature__copy">
+              <span class="section__eyebrow">Match view</span>
+              <h3 class="section__title">Match &amp; Dial Engine</h3>
+              <p>
+                Turn that chaotic stack back into fewer bands. Match the target curve, copy the state
+                with one click, and paste it back into your DAW. Built for TDR Nova and Nova GE today.
+              </p>
+            </div>
+            <div class="feature__media">
+              <img
+                src="%BASE_URL%screenshots/match-view.png"
+                alt="One Curve Match view with target curve, nodes, and rotary knobs"
+                width="1200"
+                height="750"
+                loading="lazy"
+              />
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section compare" id="compare" aria-labelledby="compare-title">
+        <div class="section__inner">
+          <div class="section__header">
+            <div>
+              <span class="section__eyebrow section__eyebrow--pink">Engineering reality</span>
+              <h2 id="compare-title" class="section__title">The Stacking Trap vs. Summed Sound</h2>
+            </div>
+          </div>
+          <div class="compare-grid">
+            <article class="compare-card compare-card--bad">
+              <div>
+                <div class="compare-card__meta">
+                  <span class="compare-card__tag">The Stacking Trap</span>
+                  <span class="compare-card__side">Multiple EQ Inserts</span>
+                </div>
+                <h3>Blindly Fighting Ghost Frequencies</h3>
+                <p>
+                  When you keep chaining EQ after EQ to patch up problems created by earlier plugins,
+                  you lose track of what is actually happening to your sound.
+                </p>
+                <ul class="compare-list">
+                  <li>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        d="M6 6l12 12M18 6L6 18"
+                      />
+                    </svg>
+                    <span>Toggling between open plugin windows to figure out where mud came from</span>
+                  </li>
+                  <li>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        d="M6 6l12 12M18 6L6 18"
+                      />
+                    </svg>
+                    <span>Accidentally boosting frequencies that an earlier EQ cut</span>
+                  </li>
+                  <li>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        d="M6 6l12 12M18 6L6 18"
+                      />
+                    </svg>
+                    <span>Band-aiding mix problems downstream rather than fixing them at the source</span>
+                  </li>
+                </ul>
+              </div>
+              <div class="compare-card__outcome">Outcome: Muddy sound, ear fatigue, and lost mix decisions</div>
+            </article>
+
+            <article class="compare-card compare-card--good">
+              <div class="compare-card__glow" aria-hidden="true"></div>
+              <div>
+                <div class="compare-card__meta">
+                  <span class="compare-card__tag">Single-Plugin Clarity</span>
+                  <span class="compare-card__side">1 Clean Curve</span>
+                </div>
+                <h3>One Clean Single-Plugin Answer</h3>
+                <p>
+                  See the net acoustic reality in seconds. Recreate that exact shape with a focused
+                  TDR Nova right at the start of your chain.
+                </p>
+                <ul class="compare-list">
+                  <li>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M5 12l5 5L20 7"
+                      />
+                    </svg>
+                    <span>Total visual clarity on your channel's actual frequency curve</span>
+                  </li>
+                  <li>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M5 12l5 5L20 7"
+                      />
+                    </svg>
+                    <span>One single plugin window to tweak whenever your mix needs adjusting</span>
+                  </li>
+                  <li>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M5 12l5 5L20 7"
+                      />
+                    </svg>
+                    <span>Confidence that you're shaping music, not wrestling plugin clutter</span>
+                  </li>
+                </ul>
+              </div>
+              <div class="compare-card__outcome">
+                Outcome: Punchy, transparent, and effortlessly controllable audio
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta" aria-labelledby="cta-title">
+        <div class="cta__inner">
+          <h2 id="cta-title">Clean up your mix bus now.</h2>
+          <p>Free, zero signup, no tracking. Runs entirely in your browser. Nothing is uploaded.</p>
+          <a class="btn btn--primary btn--lg" href="%BASE_URL%app/">
+            Launch One Curve
+            <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"
+              />
+            </svg>
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <div class="site-footer__brand">
+          <span class="site-footer__name">One Curve</span>
+          <p class="site-footer__legal">
+            One Curve is an independent project. It is not affiliated with or endorsed by Tokyo Dawn
+            Records. Tokyo Dawn Records and TDR Nova are trademarks of their respective owners.
+          </p>
+        </div>
+        <nav class="site-footer__links" aria-label="Footer">
+          <a href="%BASE_URL%app/">Launch App</a>
+          <a href="https://github.com/dagjomar/one-curve-eq">GitHub</a>
+          <a href="#features">Product</a>
+          <a href="#compare">Why Sum?</a>
+        </nav>
+      </div>
+    </footer>
+
+    <style>
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
+    <script type="module" src="/src/landing/main.ts"></script>
   </body>
 </html>

@@ -8,7 +8,7 @@ You have added too many equalizer instances, each correcting a different part, a
 
 This tool helps you combine the EQs to a single curve and lets you try to estimate that curve with one or more EQs, so you can simplify your EQ stack, reduce the number of bands, and keep things simple. Paste those Copy States, see them added into one curve, then shape that curve back down with fewer EQs (one or more, up to three Novas in this app).
 
-It is tailored for [TDR Nova](https://www.tokyodawn.net/tdr-nova/) and Nova GE Copy State / Paste State right now. It runs in the browser at [dagjomar.github.io/one-curve-eq](https://dagjomar.github.io/one-curve-eq/). Nothing is uploaded.
+It is tailored for [TDR Nova](https://www.tokyodawn.net/tdr-nova/) and Nova GE Copy State / Paste State right now. The marketing site is at [dagjomar.github.io/one-curve-eq](https://dagjomar.github.io/one-curve-eq/); the tool lives at [/app/](https://dagjomar.github.io/one-curve-eq/app/). Nothing is uploaded.
 
 One Curve is an independent project. The repository is named one-curve-eq. It is not affiliated with or endorsed by Tokyo Dawn Records, and there is no collaboration. The author would love the TDR Nova team to reach out. This is a feature they would love to see built into TDR Nova, or offered as a separate downloadable plugin.
 
@@ -59,6 +59,10 @@ npm install
 npm test
 npm run dev
 ```
+
+Dev server: landing at `/`, tool at `/app/`.
+
+Production (GitHub Pages) uses base path `/one-curve-eq/` via `PAGES_BASE` in `.github/workflows/pages.yml`.
 
 ## License
 
