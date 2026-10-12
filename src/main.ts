@@ -632,7 +632,19 @@ function renderEditor(): void {
       },
     })
     liveKnobs = { freq, gain, q }
-    deck.append(shapes, q.element, freq.element, gain.element)
+    const lock = document.createElement("button")
+    lock.type = "button"
+    lock.className = "text lock-toggle"
+    lock.dataset.action = "toggle-lock"
+    lock.setAttribute("aria-pressed", String(Boolean(band.locked)))
+    lock.textContent = band.locked ? "Locked" : "Lock"
+    lock.title = band.locked
+      ? "Unlock this band so Magic Match can replace it"
+      : "Lock this band: Magic Match keeps type/on and only nudges Freq/Gain/Q"
+    if (band.locked) {
+      for (const button of shapes.querySelectorAll("button")) button.setAttribute("disabled", "true")
+    }
+    deck.append(shapes, q.element, freq.element, gain.element, lock)
     editor.append(deck)
   }
 }
@@ -652,10 +664,12 @@ function bandSlot(instance: MatchInstance, slot: number): HTMLButtonElement {
   const current = selectedCut === null && band?.id === selectedBandId
   const button = document.createElement("button")
   button.type = "button"
-  button.className = `pick${on ? " is-on" : " is-off"}${current ? " is-current" : ""}`
+  const locked = Boolean(band?.locked)
+  button.className = `pick${on ? " is-on" : " is-off"}${current ? " is-current" : ""}${locked ? " is-locked" : ""}`
   button.dataset.action = "select-band"
   button.dataset.slot = String(slot)
-  button.textContent = `${slot + 1}`
+  button.textContent = locked ? `${slot + 1}*` : `${slot + 1}`
+  button.title = locked ? `Band ${slot + 1} locked for Magic Match` : `Band ${slot + 1}`
   if (on) paintOn(button, instance.color)
   button.setAttribute("aria-pressed", String(on))
   button.setAttribute("aria-label", slotLabel(`Band ${slot + 1}`, on, current))
@@ -770,9 +784,18 @@ function onEditorClick(event: Event): void {
     const slot = Number(button.dataset.slot)
     if (slot >= 0 && slot < 4) selectBandSlot(selected, slot)
   }
+  if (action === "toggle-lock") {
+    const band = selected.bands.find((item) => item?.id === selectedBandId)
+    if (band?.enabled) {
+      band.locked = !band.locked
+      persist()
+      render()
+    }
+    return
+  }
   if (action === "shape" && button.dataset.shape) {
     const band = selected.bands.find((item) => item?.id === selectedBandId)
-    if (band) band.type = button.dataset.shape as BandType
+    if (band && !band.locked) band.type = button.dataset.shape as BandType
   }
   if (action === "select-cut" && (button.dataset.filter === "hp" || button.dataset.filter === "lp")) {
     selectCutSlot(selected, button.dataset.filter)
@@ -1004,14 +1027,18 @@ function runMagicMatch(): void {
         matches.push(target)
         selectedMatchId = target.id
       }
-      const result = magicMatch(chainReference(), FREQUENCIES)
+      const result = magicMatch(chainReference(), FREQUENCIES, { bands: target.bands })
       target.bands = result.bands
       target.highPass = result.highPass
       target.lowPass = result.lowPass
-      selectedBandId = result.bands.find((band) => band?.enabled)?.id ?? null
+      selectedBandId = result.bands.find((band) => band?.locked && band.enabled)?.id
+        ?? result.bands.find((band) => band?.enabled)?.id
+        ?? null
       selectedCut = result.highPass?.enabled ? "hp" : result.lowPass?.enabled ? "lp" : null
       if (selectedBandId) selectedCut = null
-      showFitStatus(`Fit · mean ${result.error.mean.toFixed(2)} dB · max ${result.error.max.toFixed(2)} dB`)
+      const lockedCount = result.bands.filter((band) => band?.locked && band.enabled).length
+      const lockNote = lockedCount > 0 ? ` · ${lockedCount} locked` : ""
+      showFitStatus(`Fit · mean ${result.error.mean.toFixed(2)} dB · max ${result.error.max.toFixed(2)} dB${lockNote}`)
       persist()
       render()
     } finally {
@@ -1056,6 +1083,7 @@ function selectBandSlot(instance: MatchInstance, slot: number): void {
   const current = instance.bands[slot]
   const selectedAlready = Boolean(current && current.id === selectedBandId && selectedCut === null)
   if (selectedAlready && current) {
+    if (current.locked) return
     current.enabled = !current.enabled
     return
   }
@@ -1094,7 +1122,7 @@ function createMatch(): MatchInstance {
 }
 
 function createBand(): MatchBand {
-  return { id: crypto.randomUUID(), type: "bell", frequencyHz: 1000, gainDb: 0, q: 1, enabled: true }
+  return { id: crypto.randomUUID(), type: "bell", frequencyHz: 1000, gainDb: 0, q: 1, enabled: true, locked: false }
 }
 
 function swapMatch(a: number, b: number): void {

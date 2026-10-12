@@ -136,7 +136,7 @@ describe("magicMatch", () => {
       }),
       FREQUENCIES,
     )
-    const searchFreqs = logFrequencies(160, 20, 20_000)
+    const searchFreqs = logFrequencies(160, 20, 40_000)
     const searchRef = searchFreqs.map((frequency) => {
       let best = 0
       let bestDistance = Infinity
@@ -154,6 +154,62 @@ describe("magicMatch", () => {
     const seed = seedFromResidual(searchFreqs, searchRef)
     const active = seed.bands.filter((band) => band.enabled)
     expect(active.some((band) => band.type === "low-shelf")).toBe(true)
+  })
+
+  it("prefers a high shelf for an open-ended high cut instead of a bell", () => {
+    const reference = responseDb(
+      preset({
+        bands: [{ index: 1, type: "high-shelf", frequencyHz: 8000, gainDb: -8, q: 0.71, dynamics: false }],
+      }),
+      FREQUENCIES,
+    )
+    const features = detectFeatures(FREQUENCIES, reference)
+    expect(features.some((feature) => feature.preferredType === "high-shelf" || feature.openToHighEdge)).toBe(true)
+    const result = magicMatch(reference, FREQUENCIES, { random: mulberry32(23) })
+    const enabled = result.bands.filter((band) => band?.enabled)
+    expect(enabled.some((band) => band?.type === "high-shelf")).toBe(true)
+    const shelf = enabled.find((band) => band?.type === "high-shelf")
+    expect(shelf?.frequencyHz).toBeGreaterThan(2500)
+  })
+
+  it("keeps locked bands on, typed, and near their settings across Magic Match", () => {
+    const reference = responseDb(
+      preset({
+        bands: [
+          { index: 1, type: "bell", frequencyHz: 250, gainDb: -5, q: 0.9, dynamics: false },
+          { index: 2, type: "high-shelf", frequencyHz: 7000, gainDb: -6, q: 0.7, dynamics: false },
+        ],
+      }),
+      FREQUENCIES,
+    )
+    const lockedId = "locked-shelf"
+    const result = magicMatch(reference, FREQUENCIES, {
+      random: mulberry32(31),
+      bands: [
+        null,
+        null,
+        null,
+        {
+          id: lockedId,
+          type: "high-shelf",
+          frequencyHz: 9000,
+          gainDb: -7,
+          q: 0.8,
+          enabled: true,
+          locked: true,
+        },
+      ],
+    })
+    const locked = result.bands[3]
+    expect(locked).toBeTruthy()
+    expect(locked!.id).toBe(lockedId)
+    expect(locked!.locked).toBe(true)
+    expect(locked!.enabled).toBe(true)
+    expect(locked!.type).toBe("high-shelf")
+    expect(locked!.frequencyHz).toBeGreaterThan(7000)
+    expect(locked!.frequencyHz).toBeLessThan(12_000)
+    expect(locked!.gainDb).toBeGreaterThan(-10)
+    expect(locked!.gainDb).toBeLessThan(-4)
   })
 
   it("always returns a finite fitError and at most four enabled bands", () => {

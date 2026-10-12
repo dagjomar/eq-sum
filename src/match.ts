@@ -29,6 +29,8 @@ export interface MatchBand {
   gainDb: number
   q: number
   enabled: boolean
+  /** When true, Magic Match keeps type/on and only lightly tweaks continuous params. */
+  locked?: boolean
 }
 
 export interface MatchFilter {
@@ -57,7 +59,7 @@ export function normalizeMatch(instance: MatchInstance): MatchInstance {
   const bands = emptyBands()
   instance.bands.forEach((band, index) => {
     if (!band || index > 3) return
-    bands[index] = { ...band, enabled: band.enabled !== false }
+    bands[index] = { ...band, enabled: band.enabled !== false, locked: band.locked === true }
   })
   return { ...instance, bands, highPass: normalizeFilter(instance.highPass), lowPass: normalizeFilter(instance.lowPass) }
 }
