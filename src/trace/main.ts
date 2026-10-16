@@ -154,7 +154,7 @@ required<HTMLButtonElement>("#copy").addEventListener("click", () => void copySt
 fileInput.addEventListener("change", () => {
   const file = fileInput.files?.[0]
   fileInput.value = ""
-  if (file) void useImage(file, true)
+  if (file) void useImage(file)
 })
 hzASelect.addEventListener("change", () => onFrequencyChange("a"))
 hzBSelect.addEventListener("change", () => onFrequencyChange("b"))
@@ -173,7 +173,7 @@ stage.addEventListener("drop", (event) => {
     setPrompt("Drop an image file.")
     return
   }
-  void useImage(file, true)
+  void useImage(file)
 })
 canvas.addEventListener("pointerdown", onPointerDown)
 canvas.addEventListener("pointermove", onPointerMove)
@@ -315,24 +315,28 @@ async function restoreImage(): Promise<void> {
   setPrompt()
 }
 
-async function useImage(file: File, resetAlign: boolean): Promise<void> {
+async function useImage(file: File): Promise<void> {
+  let next: ImageBitmap
   try {
-    const next = await createImageBitmap(file)
-    bitmap?.close()
-    bitmap = next
+    next = await createImageBitmap(file)
   } catch {
     setPrompt("That file isn't an image this page can read.")
     return
   }
-  if (resetAlign) {
-    freqA = null
-    freqB = null
-    gainA = null
-    gainB = null
-  }
+  const previous = bitmap
+  const keptLines = Boolean(freqA || freqB || gainA || gainB)
+  const sameSize = previous !== null && previous.width === next.width && previous.height === next.height
+  previous?.close()
+  bitmap = next
   persist()
   paint()
-  setPrompt()
+  if (keptLines && !sameSize) {
+    setPrompt("Replaced the screenshot and kept the reference lines. This picture is a different size, so those lines may not land.")
+  } else if (keptLines) {
+    setPrompt("Replaced the screenshot. The reference lines stayed put.")
+  } else {
+    setPrompt()
+  }
   try {
     await saveShot(file)
   } catch {
