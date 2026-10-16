@@ -8,6 +8,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         app: resolve(__dirname, "app/index.html"),
+        // Unlinked and noindex. Present so /trace/ works as a direct URL.
+        trace: resolve(__dirname, "trace/index.html"),
       },
     },
   },

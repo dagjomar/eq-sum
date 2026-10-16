@@ -1,0 +1,102 @@
+.trace-app {
+  width: min(1320px, calc(100% - 1.5rem));
+}
+
+.trace-prompt {
+  min-height: 2.6rem;
+  max-width: 68rem;
+}
+
+.trace-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: end;
+  margin: 0.15rem 0 0.7rem;
+}
+
+.trace-field,
+.trace-tools label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.trace-tools select,
+.trace-tools input,
+.trace-static {
+  height: 2rem;
+  background: #101114;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.92rem;
+}
+
+.trace-tools select,
+.trace-tools input {
+  padding: 0 0.5rem;
+}
+
+.trace-static {
+  display: grid;
+  align-items: center;
+  min-width: 4.5rem;
+  padding: 0 0.55rem;
+}
+
+.trace-tools input { width: 5.5rem; }
+
+.trace-tools .is-current { color: var(--ink); }
+
+.trace-tools .is-current select,
+.trace-tools .is-current input,
+.trace-tools .is-current .trace-static {
+  border-color: var(--sum);
+}
+
+.trace-stage {
+  position: relative;
+  height: clamp(22rem, 68vh, 740px);
+  background: #101114;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.trace-stage.is-dropping { border-color: var(--sum); }
+
+.trace-stage canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+.trace-drop {
+  position: absolute;
+  inset: 0.6rem;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  border: 1px dashed #3a3a42;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  text-align: center;
+}
+
+.trace-drop:hover,
+.trace-stage.is-dropping .trace-drop {
+  border-color: var(--sum);
+  color: var(--ink);
+}
+
+.trace-editor { margin-top: 0.85rem; }
+
+#guides[aria-pressed="true"] {
+  background: #3a3a42;
+  color: #fff;
+}
