@@ -23,7 +23,7 @@ import {
   type PlotAlign,
   type StageFrame,
 } from "./align"
-import { loadShot, loadState, saveShot, saveState } from "./store"
+import { blankState, clearShot, loadShot, loadState, saveShot, saveState } from "./store"
 
 const SAMPLES = logFrequencies(640, 20, 20_000)
 const BAND_GAIN_DB = 24
@@ -81,6 +81,7 @@ app.innerHTML = `
       <div class="actions">
         <button id="replace" type="button">Replace screenshot</button>
         <button id="realign" type="button">Realign</button>
+        <button id="reset" type="button">Reset</button>
         <button id="guides" type="button">Guides</button>
         <button id="copy" class="primary" type="button">Copy state</button>
       </div>
@@ -142,6 +143,7 @@ guidesButton.setAttribute("aria-pressed", String(showGuides))
 required<HTMLButtonElement>("#replace").addEventListener("click", () => fileInput.click())
 dropButton.addEventListener("click", () => fileInput.click())
 required<HTMLButtonElement>("#realign").addEventListener("click", realign)
+required<HTMLButtonElement>("#reset").addEventListener("click", () => void resetAll())
 guidesButton.addEventListener("click", () => {
   showGuides = !showGuides
   guidesButton.setAttribute("aria-pressed", String(showGuides))
@@ -263,6 +265,35 @@ function realign(): void {
   persist()
   paint()
   setPrompt()
+}
+
+async function resetAll(): Promise<void> {
+  const blank = blankState()
+  bitmap?.close()
+  bitmap = null
+  drag = null
+  freqA = null
+  freqB = null
+  gainA = null
+  gainB = null
+  knownDb = blank.knownDb
+  match = blank.match
+  selectedBandId = null
+  selectedCut = null
+  showGuides = true
+  hzASelect.value = "100"
+  hzBSelect.value = "10000"
+  dbInput.value = String(blank.knownDb)
+  guidesButton.setAttribute("aria-pressed", "true")
+  copyNote.textContent = ""
+  readout.textContent = ""
+  fileInput.value = ""
+  canvas.style.cursor = "crosshair"
+  persist()
+  renderEditor()
+  paint()
+  setPrompt()
+  await clearShot()
 }
 
 async function restoreImage(): Promise<void> {

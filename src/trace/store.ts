@@ -80,6 +80,21 @@ export async function saveShot(blob: Blob): Promise<void> {
   db.close()
 }
 
+export async function clearShot(): Promise<void> {
+  try {
+    const db = await openDb()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, "readwrite")
+      tx.objectStore(DB_STORE).delete("shot")
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+    db.close()
+  } catch {
+    // The on-screen reset still stands if the saved screenshot cannot be removed.
+  }
+}
+
 export async function loadShot(): Promise<Blob | null> {
   try {
     const db = await openDb()
