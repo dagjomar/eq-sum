@@ -13,7 +13,7 @@ describe("graph coordinates", () => {
 
 describe("label color", () => {
   it("uses near-black text on light instance colors", () => {
-    for (const fill of ["#f2e38a", "#f0a35e", "#3ddc84", "#2dd4bf", "#c084fc", "#5b9dff", "#fb7185"]) {
+    for (const fill of ["#f0a35e", "#3ddc84", "#2dd4bf", "#c084fc", "#5b9dff", "#fb7185"]) {
       expect(labelColor(fill)).toBe("#141416")
     }
   })

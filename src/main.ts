@@ -1,7 +1,7 @@
 import { EXAMPLE_PASTE } from "./example"
 import { drawGraph, handleAtPoint, indexFromX, labelColor, xToFrequency, yToDb, type DrawnCurve, type GraphHandle } from "./graph"
 import { createKnob, type KnobController } from "./knob"
-import { magicMatch } from "./magicMatch"
+import { magicMatch, magicMatchAll, type MagicMatchResult } from "./magicMatch"
 import {
   FILTER_SLOPES,
   emptyBands,
@@ -18,10 +18,10 @@ import { logFrequencies, responseDb, sumCurves } from "./nova/magnitude"
 import { parseStates } from "./nova/parse"
 import { serializePreset } from "./nova/serialize"
 import type { BandType, NovaPreset } from "./nova/types"
+import { COLORS, remapInstanceColors } from "./palette"
 
 const STORAGE_KEY = "eq-sum/v1"
 const FREQUENCIES = logFrequencies(640)
-const COLORS = ["#ff5d6c", "#3ddc84", "#c084fc", "#5b9dff", "#f0a35e", "#f2e38a", "#2dd4bf", "#fb7185"]
 const SUM_COLOR = "#f0c36a"
 const BAND_GAIN_DB = 18
 const SHAPES: [BandType, string][] = [
@@ -508,6 +508,10 @@ function renderMatch(): void {
   }
   addNovaButton.disabled = !canAddNova()
   magicMatchButton.disabled = instances.length === 0 || magicMatchButton.dataset.busy === "1"
+  magicMatchButton.title =
+    matches.length >= 2
+      ? "Divide the reference across these Novas at a 0 dB crossing near the middle"
+      : "Fit this Nova to the reference"
   copyStateButton.disabled = !selectedMatch()
   matchRows.replaceChildren()
   for (const [index, instance] of matches.entries()) {
@@ -1053,6 +1057,33 @@ function runMagicMatch(): void {
   // Yield so the button label paints before the sync search runs.
   window.setTimeout(() => {
     try {
+      // Count is how many Novas were added (`matches`), not mute/solo.
+      // 0 or 1: one Nova, whole curve. 2 or 3: split in list order.
+      if (matches.length >= 2) {
+        const split = magicMatchAll(
+          chainReference(),
+          FREQUENCIES,
+          matches.map((instance) => ({
+            bands: instance.bands,
+            highPass: instance.highPass,
+            lowPass: instance.lowPass,
+          })),
+        )
+        matches.forEach((instance, index) => {
+          const result = split.results[index]
+          if (!result) return
+          instance.bands = result.bands
+          instance.highPass = result.highPass
+          instance.lowPass = result.lowPass
+          if (instance.id === selectedMatchId) focusMatchResult(result)
+        })
+        const lockedCount = split.results.reduce((total, result) => total + lockedCountOf(result), 0)
+        showFitStatus(fitMessage(split.error, lockedCount, split.splitHz))
+        persist()
+        render()
+        return
+      }
+
       let target = selectedMatch()
       if (!target) {
         if (!canAddNova()) return
@@ -1068,24 +1099,8 @@ function runMagicMatch(): void {
       target.bands = result.bands
       target.highPass = result.highPass
       target.lowPass = result.lowPass
-      selectedBandId = result.bands.find((band) => band?.locked && band.enabled)?.id
-        ?? result.bands.find((band) => band?.enabled)?.id
-        ?? null
-      selectedCut = result.highPass?.locked
-        ? "hp"
-        : result.lowPass?.locked
-          ? "lp"
-          : result.highPass?.enabled
-            ? "hp"
-            : result.lowPass?.enabled
-              ? "lp"
-              : null
-      if (selectedBandId && !result.highPass?.locked && !result.lowPass?.locked) selectedCut = null
-      const lockedBands = result.bands.filter((band) => band?.locked && band.enabled).length
-      const lockedCuts = (result.highPass?.locked ? 1 : 0) + (result.lowPass?.locked ? 1 : 0)
-      const lockedCount = lockedBands + lockedCuts
-      const lockNote = lockedCount > 0 ? ` · ${lockedCount} locked` : ""
-      showFitStatus(`Fit · mean ${result.error.mean.toFixed(2)} dB · max ${result.error.max.toFixed(2)} dB${lockNote}`)
+      focusMatchResult(result)
+      showFitStatus(fitMessage(result.error, lockedCountOf(result)))
       persist()
       render()
     } finally {
@@ -1094,6 +1109,39 @@ function runMagicMatch(): void {
       magicMatchButton.disabled = instances.length === 0
     }
   }, 0)
+}
+
+function focusMatchResult(result: MagicMatchResult): void {
+  selectedBandId = result.bands.find((band) => band?.locked && band.enabled)?.id
+    ?? result.bands.find((band) => band?.enabled)?.id
+    ?? null
+  selectedCut = result.highPass?.locked
+    ? "hp"
+    : result.lowPass?.locked
+      ? "lp"
+      : result.highPass?.enabled
+        ? "hp"
+        : result.lowPass?.enabled
+          ? "lp"
+          : null
+  if (selectedBandId && !result.highPass?.locked && !result.lowPass?.locked) selectedCut = null
+}
+
+function lockedCountOf(result: MagicMatchResult): number {
+  const lockedBands = result.bands.filter((band) => band?.locked && band.enabled).length
+  const lockedCuts = (result.highPass?.locked ? 1 : 0) + (result.lowPass?.locked ? 1 : 0)
+  return lockedBands + lockedCuts
+}
+
+function fitMessage(error: { mean: number; max: number }, lockedCount: number, splitHz: number[] = []): string {
+  const lockNote = lockedCount > 0 ? ` · ${lockedCount} locked` : ""
+  const splitNote =
+    splitHz.length === 0
+      ? ""
+      : splitHz.length === 1
+        ? ` · split ${formatFrequency(splitHz[0] ?? 0)}`
+        : ` · splits ${splitHz.map((hz) => formatFrequency(hz)).join(", ")}`
+  return `Fit · mean ${error.mean.toFixed(2)} dB · max ${error.max.toFixed(2)} dB${splitNote}${lockNote}`
 }
 
 function showFitStatus(message: string): void {
@@ -1287,10 +1335,10 @@ function load(): Persisted {
     return {
       version: 2,
       rangeDb: data.rangeDb === 24 ? 24 : 12,
-      instances: restored,
+      instances: remapInstanceColors(restored),
       mode: data.mode === "match" ? "match" : "chain",
       budget: data.budget === 8 || data.budget === 12 ? data.budget : 4,
-      matches: restoredMatches,
+      matches: remapInstanceColors(restoredMatches),
       selectedMatchId: typeof data.selectedMatchId === "string" ? data.selectedMatchId : null,
       selectedBandId: typeof data.selectedBandId === "string" ? data.selectedBandId : null,
       selectedCut: data.selectedCut === "hp" || data.selectedCut === "lp" ? data.selectedCut : null,

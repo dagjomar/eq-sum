@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { detectEndFilterHints, detectFeatures, magicMatch, seedFromResidual } from "../src/magicMatch"
+import { detectEndFilterHints, detectFeatures, magicMatch, magicMatchAll, matchRegions, seedFromResidual, splitFrequencies } from "../src/magicMatch"
 import { fitError, toPreset } from "../src/match"
 import { logFrequencies, responseDb } from "../src/nova/magnitude"
 import { parseStates } from "../src/nova/parse"
@@ -346,4 +346,93 @@ describe("magicMatch", () => {
     const scored = fitError(FREQUENCIES, reference, actual)
     expect(scored?.mean).toBeCloseTo(result.error.mean, 5)
   })
+})
+
+describe("split magic match", () => {
+  it("picks the 0 dB crossing nearer the middle", () => {
+    const reference = FREQUENCIES.map((hz) => {
+      if (hz < 200) return 5
+      if (hz < 1100) return -4
+      return 3
+    })
+    const [split] = splitFrequencies(FREQUENCIES, reference, 2)
+    expect(split).toBeGreaterThan(800)
+    expect(split).toBeLessThan(1400)
+  })
+
+  it("stays near the middle when the curve never crosses 0 dB", () => {
+    const reference = FREQUENCIES.map((hz) => (hz < 8000 ? 2.2 : -8))
+    const [split] = splitFrequencies(FREQUENCIES, reference, 2)
+    expect(split).toBeGreaterThan(400)
+    expect(split).toBeLessThan(1100)
+  })
+
+  it("assigns the high-pass to the first Nova and the low-pass to the last", () => {
+    const regions = matchRegions([180, 2200])
+    expect(regions).toHaveLength(3)
+    expect(regions[0]).toMatchObject({
+      allowHighPass: true,
+      allowLowPass: false,
+      allowLowShelf: true,
+      allowHighShelf: false,
+      includeMax: true,
+    })
+    expect(regions[1]).toMatchObject({
+      allowHighPass: false,
+      allowLowPass: false,
+      allowLowShelf: false,
+      allowHighShelf: false,
+      includeMin: false,
+    })
+    expect(regions[2]).toMatchObject({
+      allowHighPass: false,
+      allowLowPass: true,
+      allowLowShelf: false,
+      allowHighShelf: true,
+    })
+    expect(regions[0]?.maxHz).toBe(180)
+    expect(regions[1]?.minHz).toBe(180)
+    expect(regions[1]?.maxHz).toBe(2200)
+    expect(regions[2]?.minHz).toBe(2200)
+  })
+
+  it("divides a busy curve across two Novas at a neutral midrange point", () => {
+    const reference = responseDb(
+      preset({
+        bands: [
+          { index: 1, type: "bell", frequencyHz: 55, gainDb: 5, q: 1.1, dynamics: false },
+          { index: 2, type: "bell", frequencyHz: 160, gainDb: -6, q: 1.3, dynamics: false },
+          { index: 3, type: "bell", frequencyHz: 420, gainDb: 4.5, q: 1.4, dynamics: false },
+          { index: 4, type: "bell", frequencyHz: 2400, gainDb: -7, q: 1.15, dynamics: false },
+          { index: 5, type: "bell", frequencyHz: 6500, gainDb: 5, q: 1.2, dynamics: false },
+        ],
+        highPass: { frequencyHz: 32, slopeDbPerOct: 12 },
+        lowPass: { frequencyHz: 15_000, slopeDbPerOct: 12 },
+      }),
+      FREQUENCIES,
+    )
+    const single = magicMatch(reference, FREQUENCIES, { random: mulberry32(3) })
+    const split = magicMatchAll(reference, FREQUENCIES, [{}, {}], { random: mulberry32(3) })
+    expect(split.splitHz).toHaveLength(1)
+    const cut = split.splitHz[0] ?? 0
+    expect(cut).toBeGreaterThan(150)
+    expect(cut).toBeLessThan(2_500)
+
+    const low = split.results[0]
+    const high = split.results[1]
+    expect(low).toBeTruthy()
+    expect(high).toBeTruthy()
+    expect(low!.lowPass).toBeNull()
+    expect(high!.highPass).toBeNull()
+    expect(low!.bands.some((band) => band?.type === "high-shelf")).toBe(false)
+    expect(high!.bands.some((band) => band?.type === "low-shelf")).toBe(false)
+
+    const lowBands = low!.bands.filter((band) => band?.enabled)
+    const highBands = high!.bands.filter((band) => band?.enabled)
+    expect(lowBands.length).toBeGreaterThan(0)
+    expect(highBands.length).toBeGreaterThan(0)
+    expect(lowBands.every((band) => (band?.frequencyHz ?? 0) <= cut * 1.02)).toBe(true)
+    expect(highBands.every((band) => (band?.frequencyHz ?? 0) >= cut * 0.98)).toBe(true)
+    expect(split.error.mean).toBeLessThan(single.error.mean)
+  }, 30_000)
 })

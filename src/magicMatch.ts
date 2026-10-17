@@ -42,6 +42,19 @@ export interface MagicMatchResult {
   error: { mean: number; max: number }
 }
 
+/** One slice of a multi-Nova fit. Free bands stay inside the frequency edges. */
+export interface MatchRegion {
+  minHz: number
+  maxHz: number
+  /** When false, the shared edge belongs to the region below. */
+  includeMin: boolean
+  includeMax: boolean
+  allowHighPass: boolean
+  allowLowPass: boolean
+  allowLowShelf: boolean
+  allowHighShelf: boolean
+}
+
 export interface MagicMatchOptions {
   /** Deterministic unit interval RNG for tests. Defaults to Math.random. */
   random?: () => number
@@ -53,6 +66,24 @@ export interface MagicMatchOptions {
   /** Locked HP/LP stay on with fixed slope; frequency may nudge slightly. */
   highPass?: MatchFilter | null
   lowPass?: MatchFilter | null
+  /**
+   * Fit only this part of the curve. Samples outside are treated as 0 dB
+   * so the Nova meets its neighbor at the edge instead of leaking across.
+   */
+  region?: MatchRegion
+}
+
+export interface MagicMatchTarget {
+  bands?: (MatchBand | null)[]
+  highPass?: MatchFilter | null
+  lowPass?: MatchFilter | null
+}
+
+export interface MagicMatchAllResult {
+  results: MagicMatchResult[]
+  /** Interior split frequencies, low to high. Empty when only one Nova is fit. */
+  splitHz: number[]
+  error: { mean: number; max: number }
 }
 
 export interface Feature {
@@ -105,6 +136,7 @@ interface ScoreContext {
   reference: number[]
   features: Feature[]
   endHints: EndFilterHints
+  region?: MatchRegion
 }
 
 /** Fit one Nova (4 bands + optional HP/LP) to a reference magnitude curve. */
@@ -118,22 +150,24 @@ export function magicMatch(
   }
 
   const random = options.random ?? Math.random
+  const region = options.region
   const lockedSlots = readLockedSlots(options.bands)
   const lockedHighPass = readLockedFilter(options.highPass, "hp")
   const lockedLowPass = readLockedFilter(options.lowPass, "lp")
   const searchFreqs = logFrequencies(SEARCH_POINTS, SEARCH_START_HZ, SEARCH_END_HZ)
-  const searchRef = sampleCurve(frequencies, referenceDb, searchFreqs)
+  const searchRef = maskRegion(sampleCurve(frequencies, referenceDb, searchFreqs), searchFreqs, region)
 
   // Fit free bands to residual after locked contribution.
   const lockedCurve = lockedResponse(lockedSlots, lockedHighPass, lockedLowPass, searchFreqs)
   const residual = searchRef.map((value, index) => value - (lockedCurve[index] ?? 0))
   const endHints = detectEndFilterHints(searchFreqs, searchRef)
-  const features = detectFeatures(searchFreqs, residual, endHints)
+  const features = keepFeatures(detectFeatures(searchFreqs, residual, endHints), region)
   const ctx: ScoreContext = {
     frequencies: searchFreqs,
     reference: searchRef,
-    features: detectFeatures(searchFreqs, searchRef, endHints),
+    features: keepFeatures(detectFeatures(searchFreqs, searchRef, endHints), region),
     endHints,
+    region,
   }
   // Free-slot search still uses residual features; full reference for scoring.
   const freeFeatures = features
@@ -145,6 +179,7 @@ export function magicMatch(
     endHints,
     lockedHighPass,
     lockedLowPass,
+    region,
   )
   if (layouts.length === 0) {
     return emptyResult(options)
@@ -184,13 +219,212 @@ export function magicMatch(
 
   const polished = polish(
     best ?? seedFromResidual(searchFreqs, residual, lockedSlots, lockedHighPass, lockedLowPass),
+    region,
   )
   const bands = genesToBands(polished.bands)
   const highPass = geneToFilter(polished.highPass)
   const lowPass = geneToFilter(polished.lowPass)
   const actual = responseDb(dummyPreset(bands, highPass, lowPass), frequencies)
-  const error = fitError(frequencies, referenceDb, actual) ?? { mean: 0, max: 0 }
+  const target = maskRegion(referenceDb, frequencies, region)
+  const error = fitError(frequencies, target, actual) ?? { mean: 0, max: 0 }
   return { bands, highPass, lowPass, error }
+}
+
+const FIT_LOW_HZ = 20
+const FIT_HIGH_HZ = 20_000
+const CROSS_DB = 0.8
+
+/**
+ * Fit each target to its own part of the reference.
+ * One target is a normal Magic Match. Two or more split the curve at 0 dB
+ * crossings near the log-spaced division points. The lowest Nova keeps the
+ * high-pass and gives up the low-pass; the highest does the opposite.
+ * Each Nova is fit to what's left after the Novas below it, so a low-side
+ * tail doesn't get matched a second time.
+ */
+export function magicMatchAll(
+  referenceDb: number[],
+  frequencies: number[],
+  targets: MagicMatchTarget[],
+  options: { random?: () => number } = {},
+): MagicMatchAllResult {
+  if (targets.length === 0) return { results: [], splitHz: [], error: { mean: 0, max: 0 } }
+  if (targets.length === 1) {
+    const only = targets[0]!
+    const result = magicMatch(referenceDb, frequencies, {
+      bands: only.bands,
+      highPass: only.highPass,
+      lowPass: only.lowPass,
+      random: options.random,
+    })
+    return { results: [result], splitHz: [], error: result.error }
+  }
+
+  const splitHz = splitFrequencies(frequencies, referenceDb, targets.length)
+  const regions = matchRegions(splitHz)
+  const results: MagicMatchResult[] = []
+  const accounted = new Array<number>(frequencies.length).fill(0)
+  targets.forEach((target, index) => {
+    const residual = referenceDb.map((value, bin) => value - (accounted[bin] ?? 0))
+    const result = magicMatch(residual, frequencies, {
+      bands: target.bands,
+      highPass: target.highPass,
+      lowPass: target.lowPass,
+      random: options.random,
+      region: regions[index],
+    })
+    results.push(result)
+    const actual = responseDb(dummyPreset(result.bands, result.highPass, result.lowPass), frequencies)
+    for (let bin = 0; bin < accounted.length; bin++) accounted[bin] = (accounted[bin] ?? 0) + (actual[bin] ?? 0)
+  })
+  const error = fitError(frequencies, referenceDb, accounted) ?? { mean: 0, max: 0 }
+  return { results, splitHz, error }
+}
+
+/** Interior split points for `parts` Novas, each near a 0 dB crossing. */
+export function splitFrequencies(frequencies: number[], reference: number[], parts: number): number[] {
+  if (parts <= 1 || frequencies.length < 2 || frequencies.length !== reference.length) return []
+  const smoothed = smooth(reference, 1)
+  const anchors = Array.from({ length: parts - 1 }, (_, index) => logLerp(FIT_LOW_HZ, FIT_HIGH_HZ, (index + 1) / parts))
+  const cuts: number[] = []
+  let previous = 40
+  anchors.forEach((anchor, index) => {
+    const window = searchWindow(anchor, index, anchors)
+    const crossings = meaningfulCrossings(frequencies, smoothed, window.minHz, window.maxHz)
+    const near = crossings.length > 0 ? closestHz(crossings, anchor) : quietestNear(frequencies, smoothed, anchor, window.minHz, window.maxHz)
+    const hz = Math.min(window.maxHz, Math.max(near, previous * 1.25))
+    cuts.push(hz)
+    previous = hz
+  })
+  return cuts
+}
+
+/** Region permissions for Novas ordered low to high around `splitHz`. */
+export function matchRegions(splitHz: number[]): MatchRegion[] {
+  const edges = [MIN_FREQ, ...splitHz, MAX_FREQ]
+  const last = splitHz.length
+  return Array.from({ length: splitHz.length + 1 }, (_, index) => ({
+    minHz: edges[index] ?? MIN_FREQ,
+    maxHz: edges[index + 1] ?? MAX_FREQ,
+    includeMin: index === 0,
+    includeMax: true,
+    allowHighPass: index === 0,
+    allowLowPass: index === last,
+    allowLowShelf: index === 0,
+    allowHighShelf: index === last,
+  }))
+}
+
+function logLerp(low: number, high: number, t: number): number {
+  return Math.exp(Math.log(low) + (Math.log(high) - Math.log(low)) * t)
+}
+
+function searchWindow(anchor: number, index: number, anchors: number[]): { minHz: number; maxHz: number } {
+  const span = 2 ** (anchors.length === 1 ? 2 : 1.5)
+  let minHz = anchor / span
+  let maxHz = anchor * span
+  if (index > 0) minHz = Math.max(minHz, (anchors[index - 1] ?? anchor) * 1.2)
+  if (index < anchors.length - 1) maxHz = Math.min(maxHz, (anchors[index + 1] ?? anchor) / 1.2)
+  if (maxHz <= minHz * 1.1) {
+    minHz = anchor / 1.5
+    maxHz = anchor * 1.5
+  }
+  return { minHz: Math.max(40, minHz), maxHz: Math.min(16_000, maxHz) }
+}
+
+function meaningfulCrossings(frequencies: number[], values: number[], minHz: number, maxHz: number): number[] {
+  const found: number[] = []
+  for (let i = 1; i < frequencies.length; i++) {
+    const f0 = frequencies[i - 1] ?? 0
+    const f1 = frequencies[i] ?? 0
+    if (f1 < minHz || f0 > maxHz) continue
+    const y0 = values[i - 1] ?? 0
+    const y1 = values[i] ?? 0
+    if (!(y0 === 0 || y1 === 0 || y0 * y1 < 0)) continue
+    if (y0 === 0 && y1 === 0) continue
+    const reach = Math.max(excursion(frequencies, values, i - 1, -1), excursion(frequencies, values, i, 1))
+    if (reach < CROSS_DB) continue
+    const denom = Math.abs(y0) + Math.abs(y1)
+    const t = denom === 0 ? 0 : Math.abs(y0) / denom
+    const hz = Math.exp(Math.log(Math.max(f0, 1)) + t * (Math.log(Math.max(f1, 1)) - Math.log(Math.max(f0, 1))))
+    if (hz >= minHz && hz <= maxHz) found.push(hz)
+  }
+  return found
+}
+
+function excursion(frequencies: number[], values: number[], index: number, direction: -1 | 1): number {
+  const origin = Math.log(Math.max(frequencies[index] ?? 1, 1))
+  let peak = Math.abs(values[index] ?? 0)
+  for (let i = index + direction; i >= 0 && i < values.length; i += direction) {
+    const hz = Math.max(frequencies[i] ?? 1, 1)
+    if (Math.abs(Math.log(hz) - origin) > 0.55) break
+    peak = Math.max(peak, Math.abs(values[i] ?? 0))
+  }
+  return peak
+}
+
+function closestHz(values: number[], anchor: number): number {
+  return values.reduce((best, hz) => (Math.abs(Math.log(hz / anchor)) < Math.abs(Math.log(best / anchor)) ? hz : best))
+}
+
+function quietestNear(frequencies: number[], values: number[], anchor: number, minHz: number, maxHz: number): number {
+  let bestHz = clamp(anchor, minHz, maxHz)
+  let best = Infinity
+  for (let i = 0; i < frequencies.length; i++) {
+    const hz = frequencies[i] ?? 0
+    if (hz < minHz || hz > maxHz) continue
+    const octaves = Math.abs(Math.log(hz / anchor) / Math.LN2)
+    const score = Math.abs(values[i] ?? 0) + octaves * 0.85
+    if (score < best) {
+      best = score
+      bestHz = hz
+    }
+  }
+  return bestHz
+}
+
+function maskRegion(values: number[], frequencies: number[], region?: MatchRegion): number[] {
+  if (!region) return values
+  return values.map((value, index) => (frequencyInRegion(frequencies[index] ?? 0, region) ? value : 0))
+}
+
+function frequencyInRegion(frequency: number, region: MatchRegion): boolean {
+  // The log grid's last step can land a hair above 40 kHz. Keep that bin when
+  // the region owns the outer edge, so a low-pass doesn't look like it returns to 0.
+  const minEdge = region.minHz <= MIN_FREQ * 1.01 ? region.minHz * 0.999 : region.minHz
+  const maxEdge = region.maxHz >= MAX_FREQ * 0.99 ? region.maxHz * 1.001 : region.maxHz
+  const above = region.includeMin ? frequency >= minEdge : frequency > region.minHz
+  const below = region.includeMax ? frequency <= maxEdge : frequency < region.maxHz
+  return above && below
+}
+
+function keepFeatures(features: Feature[], region?: MatchRegion): Feature[] {
+  if (!region) return features
+  return features.filter((feature) => frequencyInRegion(feature.frequencyHz, region))
+}
+
+function coerceType(type: BandType, region?: MatchRegion): BandType {
+  if (!region) return type
+  if (type === "low-shelf" && !region.allowLowShelf) return "bell"
+  if (type === "high-shelf" && !region.allowHighShelf) return "bell"
+  return type
+}
+
+function clampToRegion(gene: Genotype, region?: MatchRegion): void {
+  if (!region) return
+  const minHz = clamp(region.minHz, MIN_FREQ, MAX_FREQ)
+  const maxHz = clamp(region.maxHz, minHz, MAX_FREQ)
+  for (const band of gene.bands) {
+    if (!band.enabled || band.locked) continue
+    band.logFreq = clamp(band.logFreq, Math.log(minHz), Math.log(maxHz))
+    band.type = coerceType(band.type, region)
+  }
+  if (!region.allowHighPass && !gene.highPass.locked) gene.highPass.enabled = false
+  if (!region.allowLowPass && !gene.lowPass.locked) gene.lowPass.enabled = false
+  if (gene.lowPass.enabled && !gene.lowPass.locked && region.allowLowPass) {
+    const lpMin = Math.max(1000, region.minHz)
+    gene.lowPass.logFreq = clamp(gene.lowPass.logFreq, Math.log(lpMin), Math.log(MAX_FREQ))
+  }
 }
 
 /** Ordered residual features for search / tests. */
@@ -394,19 +628,30 @@ function enumerateLayouts(
   endHints: EndFilterHints,
   lockedHighPass: FilterGene | null,
   lockedLowPass: FilterGene | null,
+  region?: MatchRegion,
 ): Layout[] {
   const smoothed = smooth(reference, 2)
   const hpOff = offFilter("hp")
   const lpOff = offFilter("lp")
+  const allowHighPass = !region || region.allowHighPass || Boolean(lockedHighPass)
+  const allowLowPass = !region || region.allowLowPass || Boolean(lockedLowPass)
   const hpCandidates = lockedHighPass
     ? [lockedHighPass]
-    : endFilterCandidates(frequencies, smoothed, "hp", endHints)
+    : allowHighPass
+      ? endFilterCandidates(frequencies, smoothed, "hp", endHints)
+      : [hpOff]
   const lpCandidates = lockedLowPass
     ? [lockedLowPass]
-    : endFilterCandidates(frequencies, smoothed, "lp", endHints)
+    : allowLowPass
+      ? endFilterCandidates(frequencies, smoothed, "lp", endHints)
+      : [lpOff]
   const filterOptions: Array<{ highPass: FilterGene; lowPass: FilterGene }> = []
   // When ends look like HP/LP, skip the no-filter option so shelves cannot win by default.
-  const forceFilters = endHints.highPass || endHints.lowPass || Boolean(lockedHighPass) || Boolean(lockedLowPass)
+  const forceFilters =
+    (endHints.highPass && allowHighPass) ||
+    (endHints.lowPass && allowLowPass) ||
+    Boolean(lockedHighPass) ||
+    Boolean(lockedLowPass)
   if (!forceFilters) filterOptions.push({ highPass: hpOff, lowPass: lpOff })
   for (const highPass of hpCandidates.length ? hpCandidates : [hpOff]) {
     for (const lowPass of lpCandidates.length ? lpCandidates : [lpOff]) {
@@ -428,7 +673,7 @@ function enumerateLayouts(
     free.forEach((slot, index) => {
       types[slot] = freeTypes[index] ?? null
     })
-    if (!layoutAllowed(types, features, lockedSlots)) return
+    if (!layoutAllowed(types, features, lockedSlots, region)) return
     const layout: Layout = { types, highPass: { ...filters.highPass }, lowPass: { ...filters.lowPass } }
     const key = layoutKey(layout)
     if (seen.has(key)) return
@@ -454,7 +699,7 @@ function enumerateLayouts(
   const count = Math.min(free.length, features.length)
   for (let k = 1; k <= count; k++) {
     const chosen = features.slice(0, k)
-    for (const typeSet of typeVariants(chosen)) {
+    for (const typeSet of typeVariants(chosen, region)) {
       const ordered = slotFreeTypes(chosen, typeSet, free.length)
       for (const filters of filterOptions) pushLayout(ordered, filters)
     }
@@ -472,13 +717,14 @@ function enumerateLayouts(
   return layouts
 }
 
-function typeVariants(features: Feature[]): BandType[][] {
+function typeVariants(features: Feature[], region?: MatchRegion): BandType[][] {
   if (features.length === 0) return [["bell"]]
-  const bases = features.map((feature) => feature.preferredType)
+  const bases = features.map((feature) => coerceType(feature.preferredType, region))
   const variants: BandType[][] = [bases]
 
   features.forEach((feature, index) => {
-    if (feature.preferredType === "high-shelf" || feature.preferredType === "low-shelf") {
+    const preferred = bases[index]
+    if (preferred === "high-shelf" || preferred === "low-shelf") {
       // Edge shelves: keep shelf-first; only optionally try bell as a weaker alt.
       if (!feature.openToHighEdge && !feature.openToLowEdge) {
         const asBell = bases.slice() as BandType[]
@@ -488,12 +734,12 @@ function typeVariants(features: Feature[]): BandType[][] {
       return
     }
     // Only offer shelves for truly open edges — closed bass/treble dips stay bells.
-    if (feature.openToLowEdge) {
+    if (feature.openToLowEdge && (!region || region.allowLowShelf)) {
       const alt = bases.slice() as BandType[]
       alt[index] = "low-shelf"
       variants.push(alt)
     }
-    if (feature.openToHighEdge || feature.frequencyHz > 4500) {
+    if ((feature.openToHighEdge || feature.frequencyHz > 4500) && (!region || region.allowHighShelf)) {
       const alt = bases.slice() as BandType[]
       alt[index] = "high-shelf"
       variants.push(alt)
@@ -519,6 +765,7 @@ function layoutAllowed(
   types: (BandType | null)[],
   features: Feature[],
   lockedSlots: (BandGene | null)[],
+  region?: MatchRegion,
 ): boolean {
   const active = types.filter((type) => type !== null)
   if (active.length === 0 && !lockedSlots.some((slot) => slot?.enabled)) return false
@@ -530,6 +777,8 @@ function layoutAllowed(
     if (lockedSlots[slot]?.enabled) continue
     const type = types[slot]
     if (!type || type === "bell") continue
+    if (type === "low-shelf" && region && !region.allowLowShelf) return false
+    if (type === "high-shelf" && region && !region.allowHighShelf) return false
     // Free shelves should live toward the ends.
     if (type === "low-shelf" && slot > 1) return false
     if (type === "high-shelf" && slot < 2 && features.every((feature) => !feature.openToHighEdge)) return false
@@ -639,6 +888,7 @@ function buildPopulation(seed: Genotype, size: number, random: () => number): Ge
 }
 
 function scoreGenotype(gene: Genotype, ctx: ScoreContext): number {
+  clampToRegion(gene, ctx.region)
   const actual = responseDb(
     dummyPreset(genesToBands(gene.bands), geneToFilter(gene.highPass), geneToFilter(gene.lowPass)),
     ctx.frequencies,
@@ -914,8 +1164,9 @@ function coordinatePolish(gene: Genotype, ctx: ScoreContext): Genotype {
   return current
 }
 
-function polish(gene: Genotype): Genotype {
+function polish(gene: Genotype, region?: MatchRegion): Genotype {
   const next = cloneGene(gene)
+  clampToRegion(next, region)
   for (const band of next.bands) {
     band.logFreq = clamp(band.logFreq, Math.log(MIN_FREQ), Math.log(MAX_FREQ))
     band.gainDb = clamp(band.gainDb, MIN_GAIN, MAX_GAIN)
