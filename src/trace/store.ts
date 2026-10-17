@@ -1,5 +1,5 @@
 import { emptyBands, normalizeMatch, type MatchInstance } from "../match"
-import type { AnchorX, AnchorY } from "./align"
+import { DEFAULT_KNOWN_DB, type AnchorX, type AnchorY } from "./align"
 
 const STATE_KEY = "eq-sum/trace/v1"
 const DB_NAME = "eq-sum-trace"
@@ -23,7 +23,7 @@ export function blankState(): TraceState {
     freqB: null,
     gainA: null,
     gainB: null,
-    knownDb: 6,
+    knownDb: DEFAULT_KNOWN_DB,
     match: {
       id: crypto.randomUUID(),
       name: "Nova",
@@ -54,7 +54,7 @@ export function loadState(): TraceState {
       freqB: anchorX(data.freqB),
       gainA: gainA ? { ...gainA, db: 0 } : null,
       gainB: anchorY(data.gainB),
-      knownDb: typeof data.knownDb === "number" && Number.isFinite(data.knownDb) ? data.knownDb : 6,
+      knownDb: typeof data.knownDb === "number" && Number.isFinite(data.knownDb) ? data.knownDb : DEFAULT_KNOWN_DB,
       match,
       selectedBandId: typeof data.selectedBandId === "string" ? data.selectedBandId : null,
       selectedCut: data.selectedCut === "hp" || data.selectedCut === "lp" ? data.selectedCut : null,

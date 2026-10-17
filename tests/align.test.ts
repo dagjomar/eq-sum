@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  gainGridDb,
   dbToImageY,
   frequencyToImageX,
   imageToStage,
@@ -63,6 +64,19 @@ describe("stage fit", () => {
     expect(image.x).toBeCloseTo(20, 6)
     expect(image.y).toBeCloseTo(0, 6)
     expect(imageToStage(image.x, image.y, frame).x).toBeCloseTo(10, 4)
+  })
+})
+
+describe("gain grid", () => {
+  it("draws a line every 5 dB, including the default 20 dB reference", () => {
+    const lines = gainGridDb()
+    expect(lines).toContain(0)
+    expect(lines).toContain(20)
+    expect(lines).toContain(-15)
+    expect(lines).not.toContain(6)
+    for (let index = 1; index < lines.length; index += 1) {
+      expect((lines[index] ?? 0) - (lines[index - 1] ?? 0)).toBe(5)
+    }
   })
 })
 

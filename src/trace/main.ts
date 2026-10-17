@@ -6,7 +6,8 @@ import { logFrequencies, responseDb } from "../nova/magnitude"
 import { serializePreset } from "../nova/serialize"
 import type { BandType } from "../nova/types"
 import {
-  CHECK_GAINS,
+  DEFAULT_KNOWN_DB,
+  gainGridDb,
   FREQ_TICKS,
   dbToImageY,
   frequencyToImageX,
@@ -246,7 +247,7 @@ function onKnownGain(): void {
   const db = Number(dbInput.value)
   if (!Number.isFinite(db)) return
   if (db === (gainA?.db ?? 0)) {
-    dbInput.value = String(gainB?.db ?? (knownDb === 0 ? 6 : knownDb))
+    dbInput.value = String(gainB?.db ?? (knownDb === 0 ? DEFAULT_KNOWN_DB : knownDb))
     setPrompt("Known gain has to be something other than the zero line.")
     return
   }
@@ -584,8 +585,8 @@ function drawGuides(context: CanvasRenderingContext2D, fitted: PlotAlign, frame:
     context.lineTo(x, frame.offsetY + (bitmap?.height ?? 0) * frame.scale)
     context.stroke()
   }
-  for (const db of CHECK_GAINS) {
-    if (db === fitted.gainA.db || db === fitted.gainB.db) continue
+  for (const db of gainGridDb()) {
+    if (Math.abs(db - fitted.gainA.db) < 0.05 || Math.abs(db - fitted.gainB.db) < 0.05) continue
     const y = imageToStage(0, dbToImageY(db, fitted), frame).y
     context.beginPath()
     context.moveTo(frame.offsetX, y)

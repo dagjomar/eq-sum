@@ -1,7 +1,16 @@
 /** Map a screenshot pixel to Hz (log) and dB (linear) from two anchors each. */
 
 export const FREQ_TICKS = [20, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000, 20_000] as const
-export const CHECK_GAINS = [-24, -18, -12, -6, 6, 12, 18, 24] as const
+export const DEFAULT_KNOWN_DB = 20
+export const GAIN_GRID_STEP_DB = 5
+const GAIN_GRID_LIMIT_DB = 80
+
+/** Faint gain guides. Every 5 dB, so a 20 dB reference splits into equal steps. */
+export function gainGridDb(): number[] {
+  const lines: number[] = []
+  for (let db = -GAIN_GRID_LIMIT_DB; db <= GAIN_GRID_LIMIT_DB; db += GAIN_GRID_STEP_DB) lines.push(db)
+  return lines
+}
 
 export interface AnchorX {
   hz: number
